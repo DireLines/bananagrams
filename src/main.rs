@@ -1,11 +1,7 @@
-use std::env;
-
-use regex::Regex;
-
-// import hashlib
-//try to derive Hash for board
-
 use rand::prelude::*;
+use regex::Regex;
+use std::env;
+//try to derive Hash for board
 
 #[derive(Clone)]
 struct LetterPlacement {
@@ -55,38 +51,47 @@ impl Grid {
     fn bounding_box_area(&self) -> usize {
         unimplemented!();
     }
+
+    fn valid_bananagrams(&self) -> bool {
+        unimplemented!();
+    }
+
+    fn word_placements_for(
+        &self,
+        word: &str,
+        position: usize,
+        dir: Direction,
+    ) -> Vec<Vec<LetterPlacement>> {
+        unimplemented!();
+    }
+
+    fn words_at(&self, position: usize, dir: Direction) -> String {
+        unimplemented!();
+    }
 }
 
 fn main() {
-    println!("Hello, world!");
+    println!(
+        "Usage: ./bananagrams [tiles]
+Ex: ./bananagrams loremipsum -c -s -f common.txt
+Options:
+      -s to try shorter words first
+      -l to try longer words first
+      -c to check if valid at every step
+      -r to randomize alphabetical order
+      -f to choose a file of words to draw from"
+    );
 }
 
 fn can_be_made_with(word: &str, tiles: &Vec<char>) -> bool {
     unimplemented!();
 }
 
-fn place_word_at(word: &str, x: usize, y: usize, dir: Direction) {
-    unimplemented!();
-}
-
-fn words_at(position: usize, dir: Direction) -> String {
-    unimplemented!();
-}
-
-fn check_valid_bananagrams(grid: Grid) -> bool {
+fn place_word_at(word: &str, x: usize, y: usize, dir: Direction) -> Vec<LetterPlacement> {
     unimplemented!();
 }
 
 fn regex_for(position: usize, dir: Direction, available_chars: &Vec<char>) -> Regex {
-    unimplemented!();
-}
-
-fn word_placements_for(
-    word: &str,
-    position: usize,
-    dir: Direction,
-    grid: Grid,
-) -> Vec<LetterPlacement> {
     unimplemented!();
 }
 
