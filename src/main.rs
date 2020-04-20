@@ -53,8 +53,7 @@ Options:
         .filter(|word| can_be_made_with(&word.as_str(), &tiles))
         .collect();
     if arg_exists("-r") {
-        let mut rng = thread_rng();
-        words.shuffle(&mut rng);
+        words.shuffle(&mut thread_rng());
     }
     if arg_exists("-s") {
         words.sort_by_key(|a| a.len());
