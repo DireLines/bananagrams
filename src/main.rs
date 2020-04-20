@@ -1,5 +1,7 @@
+use ndarray::Array2;
 use rand::prelude::*;
 use regex::Regex;
+use std::collections::HashSet;
 use std::env;
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -14,7 +16,7 @@ macro_rules! typecheck {
 }
 
 fn main() {
-    let numargs = env::args().collect::<Vec<String>>().len();
+    let numargs = env::args().count();
     if numargs < 2 || arg_exists("-help") {
         println!(
             "Usage: ./bananagrams [tiles]
@@ -59,6 +61,20 @@ Options:
         words.reverse();
     }
     println!("{:?}", words);
+
+    let board_dim = &tiles.len() * 2;
+    let mut board = Grid(Array2::from_elem((board_dim, board_dim), ' '));
+    let mut minimum: Option<&Grid> = None;
+    let mut minimum_area: usize = board_dim * board_dim;
+    let mut wordstack: Vec<WordStackFrame> = Vec::new();
+    wordstack.push(WordStackFrame {
+        remaining_tiles: tiles,
+        available_words: words,
+        placed_letters: Vec::new(),
+        recursion_depth: 0,
+    });
+
+    let mut hashed_boards: HashSet<u64> = HashSet::new();
 }
 
 //utils
@@ -137,7 +153,7 @@ enum Direction {
 }
 
 #[derive(Hash)]
-struct Grid(ndarray::Array2<char>);
+struct Grid(Array2<char>);
 
 impl Grid {
     fn print(&self) {
@@ -170,10 +186,10 @@ impl Grid {
     }
 }
 
-fn can_be_made_with(word: &str, tiles: &Vec<char>) -> bool {
-    let mut tiles: Vec<char> = tiles.clone();
+fn can_be_made_with(word: &str, tiles: &[char]) -> bool {
+    let mut tiles = tiles.to_owned();
     for c in word.chars() {
-        match (&tiles).into_iter().position(|x| *x == c) {
+        match tiles.iter().position(|x| *x == c) {
             None => {
                 return false;
             }
@@ -189,7 +205,7 @@ fn place_word_at(word: &str, x: usize, y: usize, dir: Direction) -> Vec<LetterPl
     unimplemented!();
 }
 
-fn regex_for(position: usize, dir: Direction, available_chars: &Vec<char>) -> Regex {
+fn regex_for(position: usize, dir: Direction, available_chars: &[char]) -> Regex {
     unimplemented!();
 }
 
