@@ -1,13 +1,18 @@
 use ndarray::Array2;
 use rand::prelude::*;
 use regex::Regex;
+use std::cmp::max;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::env;
 use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::io::{self, BufRead};
+use std::iter::FromIterator;
 use std::path::Path;
+
+#[macro_use]
+extern crate ndarray;
 
 //evaluates the type of an expr
 //and throws a mismatched type error
@@ -136,8 +141,8 @@ struct BoundingBox {
 }
 
 impl BoundingBox {
-    fn area() -> usize {
-        unimplemented!();
+    fn area(&self) -> usize {
+        max((self.ymax - self.ymin + 1) * (self.xmax - self.xmin + 1), 0)
     }
 }
 
@@ -150,8 +155,8 @@ struct WordStackFrame {
 }
 
 enum Direction {
-    Vertical,
-    Horizontal,
+    vertical,
+    horizontal,
 }
 
 #[derive(Hash)]
@@ -167,7 +172,7 @@ impl Grid {
     }
 
     fn bounding_box_area(&self) -> usize {
-        unimplemented!();
+        self.bounding_box().area()
     }
 
     fn valid_bananagrams(&self) -> bool {
@@ -184,7 +189,11 @@ impl Grid {
     }
 
     fn words_at(&self, position: usize, dir: Direction) -> String {
-        unimplemented!();
+        let chars = match dir {
+            horizontal => self.0.slice(s![position..position + 1, ..]), //row
+            vertical => self.0.slice(s![.., position..position + 1]),   //column
+        };
+        String::from_iter(chars)
     }
 
     fn insert(&mut self, x: usize, y: usize, val: char) {
@@ -208,7 +217,22 @@ fn can_be_made_with(word: &str, tiles: &[char]) -> bool {
 }
 
 fn place_word_at(word: &str, x: usize, y: usize, dir: Direction) -> Vec<LetterPlacement> {
-    unimplemented!();
+    let mut result = Vec::new();
+    for (i, c) in word.chars().enumerate() {
+        result.push(match &dir {
+            horizontal => LetterPlacement {
+                letter: c,
+                x: x + i,
+                y: y,
+            },
+            vertical => LetterPlacement {
+                letter: c,
+                x: x,
+                y: y + i,
+            },
+        });
+    }
+    result
 }
 
 fn regex_for(position: usize, dir: Direction, available_chars: &[char]) -> Regex {
