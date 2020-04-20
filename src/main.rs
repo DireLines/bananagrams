@@ -6,9 +6,9 @@ use std::io::{self, BufRead};
 use std::path::Path;
 
 //macros
+#[cfg(debug_assertions)]
 macro_rules! typecheck {
     ($e:expr) => {
-        #[cfg(debug_assertions)]
         let _: () = $e;
     };
 }
@@ -28,22 +28,37 @@ Options:
         );
         return;
     }
-    let word_filename = flag_or("-f", "words.txt".to_string());
+    let word_filename = after_flag_or("-f", "words.txt".to_string());
     // let word_file = File::open(word_filename).expect("no such file");
     let mut words: Vec<String> = Vec::new();
-    if let Ok(lines) = read_lines(word_filename) {
+    if let Ok(lines) = read_lines(&word_filename) {
         for line in lines {
             if let Ok(word) = line {
                 words.push(word);
             }
         }
+    } else {
+        println!("file '{}' not found", word_filename);
+        return;
     }
     let tileword: String = getarg(1, "loremipsum".to_string());
     let tiles: Vec<char> = tileword.chars().collect();
-    let words: Vec<String> = words
+    words = words
         .into_iter()
         .filter(|word| can_be_made_with(&word.as_str(), &tiles))
         .collect();
+    if arg_exists("-r") {
+        let mut rng = thread_rng();
+        words.shuffle(&mut rng);
+    }
+    if arg_exists("-s") {
+        words.sort_by_key(|a| a.len());
+    }
+    if arg_exists("-l") {
+        words.sort_by_key(|a| a.len());
+        words.reverse();
+    }
+    println!("{:?}", words);
 }
 
 //utils
@@ -72,7 +87,7 @@ fn arg_exists(arg: &str) -> bool {
     arg_pos(arg).is_some()
 }
 
-fn flag_or<T: std::str::FromStr>(flag: &str, default: T) -> T {
+fn after_flag_or<T: std::str::FromStr>(flag: &str, default: T) -> T {
     match arg_pos(flag) {
         Some(index) => getarg(index + 1, default),
         None => default,
