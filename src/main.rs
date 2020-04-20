@@ -1,15 +1,16 @@
 use ndarray::Array2;
 use rand::prelude::*;
 use regex::Regex;
-use std::cmp::max;
-use std::collections::hash_map::DefaultHasher;
-use std::collections::HashSet;
-use std::env;
-use std::fs::File;
-use std::hash::{Hash, Hasher};
-use std::io::{self, BufRead};
-use std::iter::FromIterator;
-use std::path::Path;
+use std::{
+    cmp::{max, min},
+    collections::{hash_map::DefaultHasher, HashSet},
+    env,
+    fs::File,
+    hash::{Hash, Hasher},
+    io::{self, BufRead},
+    iter::FromIterator,
+    path::Path,
+};
 
 #[macro_use]
 extern crate ndarray;
@@ -164,11 +165,44 @@ struct Grid(Array2<char>);
 
 impl Grid {
     fn print(&self) {
-        unimplemented!();
+        println!("{:?}", self.0);
     }
 
     fn bounding_box(&self) -> BoundingBox {
-        unimplemented!();
+        let width = self.0.dim().0;
+        let height = self.0.dim().1;
+        let mut xmin = width;
+        let mut xmax = 0;
+        let mut ymin = height;
+        let mut ymax = 0;
+        for x in 0..width {
+            for y in 0..height {
+                if (self.0[[x, y]] != ' ') {
+                    xmin = min(xmin, x);
+                    xmax = max(xmax, x);
+                    ymin = min(ymin, y);
+                    ymax = max(ymax, y);
+                }
+            }
+        }
+        BoundingBox {
+            xmin,
+            xmax,
+            ymin,
+            ymax,
+        }
+    }
+
+    fn regex_for(&self, position: usize, dir: Direction, available_chars: &[char]) -> Regex {
+        let words = self.words_at(position, dir);
+        let chars_regex = format!("[{}]*", String::from_iter(available_chars));
+        let regex_string = format!(
+            "{}{}{}",
+            &chars_regex,
+            &words.trim().replace(' ', &chars_regex),
+            &chars_regex
+        );
+        Regex::new(&regex_string).unwrap()
     }
 
     fn bounding_box_area(&self) -> usize {
@@ -176,6 +210,11 @@ impl Grid {
     }
 
     fn valid_bananagrams(&self) -> bool {
+        let bounds = self.bounding_box();
+        // let mut words_to_check = Vec::new();
+        // for row in bounds.ymin..bounds..ymax+1{
+
+        // }
         unimplemented!();
     }
 
@@ -235,10 +274,6 @@ fn place_word_at(word: &str, x: usize, y: usize, dir: Direction) -> Vec<LetterPl
     result
 }
 
-fn regex_for(position: usize, dir: Direction, available_chars: &[char]) -> Regex {
-    unimplemented!();
-}
-
 fn pop_stack() {
     unimplemented!();
 }
@@ -251,4 +286,21 @@ fn hash<T: Hash>(t: &T) -> u64 {
     let mut s = DefaultHasher::new();
     t.hash(&mut s);
     s.finish()
+}
+
+#[test]
+fn hash_boards() {
+    let mut board = Grid(Array2::from_elem((5, 5), ' '));
+    let empty_hash = hash(&board);
+    board.insert(1, 1, 'h');
+    assert!(hash(&board) != empty_hash);
+    board.insert(1, 1, ' ');
+    assert!(hash(&board) == empty_hash);
+    board = Grid(Array2::from_elem((5, 5), ' '));
+    assert!(hash(&board) == empty_hash);
+}
+
+#[test]
+fn regex() {
+    unimplemented!();
 }
