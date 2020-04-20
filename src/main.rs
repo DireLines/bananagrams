@@ -9,10 +9,11 @@ use std::hash::{Hash, Hasher};
 use std::io::{self, BufRead};
 use std::path::Path;
 
-//macros
-#[cfg(debug_assertions)]
+//evaluates the type of an expr
+//and throws a mismatched type error
 macro_rules! typecheck {
     ($e:expr) => {
+        #[cfg(debug_assertions)]
         let _: () = $e;
     };
 }
