@@ -1,9 +1,11 @@
 use ndarray::Array2;
 use rand::prelude::*;
 use regex::Regex;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::env;
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::io::{self, BufRead};
 use std::path::Path;
 
@@ -184,6 +186,10 @@ impl Grid {
     fn words_at(&self, position: usize, dir: Direction) -> String {
         unimplemented!();
     }
+
+    fn insert(&mut self, x: usize, y: usize, val: char) {
+        self.0[[x, y]] = val;
+    }
 }
 
 fn can_be_made_with(word: &str, tiles: &[char]) -> bool {
@@ -215,4 +221,10 @@ fn pop_stack() {
 
 fn find_minimum_area_configuration() {
     unimplemented!();
+}
+
+fn hash<T: Hash>(t: &T) -> u64 {
+    let mut s = DefaultHasher::new();
+    t.hash(&mut s);
+    s.finish()
 }
