@@ -2,7 +2,8 @@ use rand::prelude::*;
 use regex::Regex;
 use std::env;
 use std::fs::File;
-use std::io::prelude::*;
+use std::io::{self, BufRead};
+use std::path::Path;
 
 //macros
 macro_rules! typecheck {
@@ -13,18 +14,36 @@ macro_rules! typecheck {
 }
 
 fn main() {
-    let word_filename = flag_or("-f", "words.txt".to_string());
-    let word_file = File::open(word_filename).expect("no such file");
-    println!(
-        "Usage: ./bananagrams [tiles]
+    let numargs = env::args().collect::<Vec<String>>().len();
+    if numargs < 2 || arg_exists("-help") {
+        println!(
+            "Usage: ./bananagrams [tiles]
 Ex: ./bananagrams loremipsum -c -s -f common.txt
 Options:
       -s to try shorter words first
       -l to try longer words first
       -c to check if valid at every step
-      -r to randomize alphabetical order
+      -r to randomize word choosing order
       -f to choose a file of words to draw from"
-    );
+        );
+        return;
+    }
+    let word_filename = flag_or("-f", "words.txt".to_string());
+    // let word_file = File::open(word_filename).expect("no such file");
+    let mut words: Vec<String> = Vec::new();
+    if let Ok(lines) = read_lines(word_filename) {
+        for line in lines {
+            if let Ok(word) = line {
+                words.push(word);
+            }
+        }
+    }
+    let tileword: String = getarg(1, "loremipsum".to_string());
+    let tiles: Vec<char> = tileword.chars().collect();
+    let words: Vec<String> = words
+        .into_iter()
+        .filter(|word| can_be_made_with(&word.as_str(), &tiles))
+        .collect();
 }
 
 //utils
@@ -58,6 +77,13 @@ fn flag_or<T: std::str::FromStr>(flag: &str, default: T) -> T {
         Some(index) => getarg(index + 1, default),
         None => default,
     }
+}
+
+// The output is wrapped in a Result to allow matching on errors
+// Returns an Iterator to the Reader of the lines of the file.
+fn read_lines<P: AsRef<Path>>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>> {
+    let file = File::open(filename)?;
+    Ok(io::BufReader::new(file).lines())
 }
 
 //structs
@@ -130,7 +156,18 @@ impl Grid {
 }
 
 fn can_be_made_with(word: &str, tiles: &Vec<char>) -> bool {
-    unimplemented!();
+    let mut tiles: Vec<char> = tiles.clone();
+    for c in word.chars() {
+        match (&tiles).into_iter().position(|x| *x == c) {
+            None => {
+                return false;
+            }
+            Some(index) => {
+                tiles.remove(index);
+            }
+        }
+    }
+    true
 }
 
 fn place_word_at(word: &str, x: usize, y: usize, dir: Direction) -> Vec<LetterPlacement> {

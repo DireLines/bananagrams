@@ -46,11 +46,6 @@ wordfile = open(wordfilename,"r")
 words = [line.split()[0] for line in wordfile]
 tileword = sys.argv[1]
 tiles = list(tileword)
-board=array(len(tiles)*2,len(tiles)*2,init=" ")
-minimum=[]
-minimumArea=len(board)*len(board[0])
-foundAnySolution=False
-wordstack=[]
 
 preemptiveChecking = False
 if("-c" in sys.argv):
@@ -72,6 +67,12 @@ if("-s" in sys.argv):
 if("-l" in sys.argv):
     words = list(reversed(sorted(words,key=lambda x:len(x))))
 print(words)
+
+board=array(len(tiles)*2,len(tiles)*2,init=" ")
+minimum=[]
+minimumArea=len(board)*len(board[0])
+foundAnySolution=False
+wordstack=[]
 initstackframe = WordStackFrame(tileword,words,[],0)
 wordstack.append(initstackframe)
 
