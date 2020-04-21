@@ -40,7 +40,6 @@ Options:
         return;
     }
     let word_filename = after_flag_or("-f", "words.txt".to_string());
-    // let word_file = File::open(word_filename).expect("no such file");
     let mut words: Vec<String> = Vec::new();
     if let Ok(lines) = read_lines(&word_filename) {
         for line in lines {
@@ -70,7 +69,7 @@ Options:
     }
     println!("{:?}", words);
 
-    let board_dim = &tiles.len() * 2;
+    let board_dim = tiles.len() * 2;
     let mut board = Grid(Array2::from_elem((board_dim, board_dim), ' '));
     let mut minimum: Option<&Grid> = None;
     let mut minimum_area: usize = board_dim * board_dim;
@@ -213,7 +212,7 @@ impl Grid {
     }
 
     fn valid_bananagrams(&self, words: &[String]) -> bool {
-        let bounds = &self.bounding_box();
+        let bounds = self.bounding_box();
         let mut words_to_check: Vec<String> = Vec::new();
         for row in bounds.min_row..bounds.max_row + 1 {
             words_to_check.extend(
@@ -230,7 +229,7 @@ impl Grid {
             );
         }
         for word in &words_to_check {
-            if !words.contains(&word) && word.len() > 1 {
+            if !words.contains(word) && word.len() > 1 {
                 return false;
             }
         }
@@ -261,17 +260,14 @@ impl Grid {
                     Direction::Horizontal => i + j,
                     Direction::Vertical => position,
                 };
+                let letter = word.chars().nth(j).unwrap();
                 match self.get(row, col) {
-                    ' ' => this_result.push(LetterPlacement {
-                        letter: word.chars().nth(j).unwrap(),
-                        row,
-                        col,
-                    }),
-                    x if x == word.chars().nth(j).unwrap() => connected = true,
+                    ' ' => this_result.push(LetterPlacement { letter, row, col }),
+                    x if x == letter => connected = true,
                     _ => break,
                 };
             }
-            if this_result.len() > 0 && connected {
+            if !this_result.is_empty() && connected {
                 result.push(this_result);
             }
         }
@@ -299,13 +295,9 @@ fn can_be_made_with(word: &str, tiles: &[char]) -> bool {
     let mut tiles = tiles.to_owned();
     for c in word.chars() {
         match tiles.iter().position(|x| *x == c) {
-            None => {
-                return false;
-            }
-            Some(index) => {
-                tiles.remove(index);
-            }
-        }
+            None => return false,
+            Some(index) => tiles.remove(index),
+        };
     }
     true
 }
@@ -313,7 +305,7 @@ fn can_be_made_with(word: &str, tiles: &[char]) -> bool {
 fn place_word_at(word: &str, c0: usize, r0: usize, dir: Direction) -> Vec<LetterPlacement> {
     let mut result = Vec::new();
     for (i, c) in word.chars().enumerate() {
-        result.push(match &dir {
+        result.push(match dir {
             Direction::Horizontal => LetterPlacement {
                 letter: c,
                 col: c0 + i,
