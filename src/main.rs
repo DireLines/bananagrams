@@ -129,21 +129,24 @@ fn read_lines<P: AsRef<Path>>(filename: P) -> io::Result<io::Lines<io::BufReader
 #[derive(Clone)]
 struct LetterPlacement {
     letter: char,
-    x: usize,
-    y: usize,
+    row: usize,
+    col: usize,
 }
 
 #[derive(Clone)]
 struct BoundingBox {
-    xmin: usize,
-    xmax: usize,
-    ymin: usize,
-    ymax: usize,
+    min_col: usize,
+    max_col: usize,
+    min_row: usize,
+    max_row: usize,
 }
 
 impl BoundingBox {
     fn area(&self) -> usize {
-        max((self.ymax - self.ymin + 1) * (self.xmax - self.xmin + 1), 0)
+        max(
+            (self.max_row - self.min_row + 1) * (self.max_col - self.min_col + 1),
+            0,
+        )
     }
 }
 
@@ -165,31 +168,31 @@ struct Grid(Array2<char>);
 
 impl Grid {
     fn print(&self) {
-        println!("{:?}", self.0);
+        println!("{}", self.0);
     }
 
     fn bounding_box(&self) -> BoundingBox {
         let width = self.0.dim().0;
         let height = self.0.dim().1;
-        let mut xmin = width;
-        let mut xmax = 0;
-        let mut ymin = height;
-        let mut ymax = 0;
-        for x in 0..width {
-            for y in 0..height {
-                if (self.0[[x, y]] != ' ') {
-                    xmin = min(xmin, x);
-                    xmax = max(xmax, x);
-                    ymin = min(ymin, y);
-                    ymax = max(ymax, y);
+        let mut min_col = width;
+        let mut max_col = 0;
+        let mut min_row = height;
+        let mut max_row = 0;
+        for r in 0..width {
+            for c in 0..height {
+                if (self.0[[r, c]] != ' ') {
+                    min_col = min(min_col, c);
+                    max_col = max(max_col, c);
+                    min_row = min(min_row, r);
+                    max_row = max(max_row, r);
                 }
             }
         }
         BoundingBox {
-            xmin,
-            xmax,
-            ymin,
-            ymax,
+            min_col,
+            max_col,
+            min_row,
+            max_row,
         }
     }
 
@@ -209,12 +212,15 @@ impl Grid {
         self.bounding_box().area()
     }
 
-    fn valid_bananagrams(&self) -> bool {
+    fn valid_bananagrams(&self, words: &[String]) -> bool {
         let bounds = self.bounding_box();
-        // let mut words_to_check = Vec::new();
-        // for row in bounds.ymin..bounds..ymax+1{
-
-        // }
+        let mut words_to_check = Vec::new();
+        for row in bounds.min_row..bounds.max_row + 1 {
+            words_to_check.extend(self.words_at(row, horizontal).split());
+        }
+        for col in bounds.min_col..bounds.max_col + 1 {
+            words_to_check.extend(self.words_at(col, vertical).split());
+        }
         unimplemented!();
     }
 
@@ -235,8 +241,8 @@ impl Grid {
         String::from_iter(chars)
     }
 
-    fn insert(&mut self, x: usize, y: usize, val: char) {
-        self.0[[x, y]] = val;
+    fn insert(&mut self, r: usize, c: usize, val: char) {
+        self.0[[r, c]] = val;
     }
 }
 
@@ -255,19 +261,19 @@ fn can_be_made_with(word: &str, tiles: &[char]) -> bool {
     true
 }
 
-fn place_word_at(word: &str, x: usize, y: usize, dir: Direction) -> Vec<LetterPlacement> {
+fn place_word_at(word: &str, c0: usize, r0: usize, dir: Direction) -> Vec<LetterPlacement> {
     let mut result = Vec::new();
     for (i, c) in word.chars().enumerate() {
         result.push(match &dir {
             horizontal => LetterPlacement {
                 letter: c,
-                x: x + i,
-                y: y,
+                col: c0 + i,
+                row: r0,
             },
             vertical => LetterPlacement {
                 letter: c,
-                x: x,
-                y: y + i,
+                col: c0,
+                row: r0 + i,
             },
         });
     }
@@ -289,7 +295,7 @@ fn hash<T: Hash>(t: &T) -> u64 {
 }
 
 #[test]
-fn hash_boards() {
+fn hash_grids() {
     let mut board = Grid(Array2::from_elem((5, 5), ' '));
     let empty_hash = hash(&board);
     board.insert(1, 1, 'h');
@@ -298,9 +304,4 @@ fn hash_boards() {
     assert!(hash(&board) == empty_hash);
     board = Grid(Array2::from_elem((5, 5), ' '));
     assert!(hash(&board) == empty_hash);
-}
-
-#[test]
-fn regex() {
-    unimplemented!();
 }
