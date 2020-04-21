@@ -262,7 +262,10 @@ impl Grid {
                 };
                 let letter = word.chars().nth(j).unwrap();
                 match self.get(row, col) {
-                    ' ' => this_result.push(LetterPlacement { letter, row, col }),
+                    ' ' => {
+                        this_result.push(LetterPlacement { letter, row, col });
+                        continue;
+                    }
                     x if x == letter => connected = true,
                     _ => break,
                 };
