@@ -159,8 +159,8 @@ struct WordStackFrame {
 }
 
 enum Direction {
-    vertical,
-    horizontal,
+    Vertical,
+    Horizontal,
 }
 
 #[derive(Hash)]
@@ -213,15 +213,28 @@ impl Grid {
     }
 
     fn valid_bananagrams(&self, words: &[String]) -> bool {
-        let bounds = self.bounding_box();
-        let mut words_to_check = Vec::new();
+        let bounds = &self.bounding_box();
+        let mut words_to_check: Vec<String> = Vec::new();
         for row in bounds.min_row..bounds.max_row + 1 {
-            words_to_check.extend(self.words_at(row, horizontal).split());
+            words_to_check.extend(
+                self.words_at(row, Direction::Horizontal)
+                    .split_whitespace()
+                    .map(|x| x.to_string()),
+            );
         }
         for col in bounds.min_col..bounds.max_col + 1 {
-            words_to_check.extend(self.words_at(col, vertical).split());
+            words_to_check.extend(
+                self.words_at(col, Direction::Vertical)
+                    .split_whitespace()
+                    .map(|x| x.to_string()),
+            );
         }
-        unimplemented!();
+        for word in &words_to_check {
+            if !words.contains(&word) && word.len() > 1 {
+                return false;
+            }
+        }
+        true
     }
 
     fn word_placements_for(
@@ -235,8 +248,8 @@ impl Grid {
 
     fn words_at(&self, position: usize, dir: Direction) -> String {
         let chars = match dir {
-            horizontal => self.0.slice(s![position..position + 1, ..]), //row
-            vertical => self.0.slice(s![.., position..position + 1]),   //column
+            Direction::Horizontal => self.0.slice(s![position..position + 1, ..]), //row
+            Direction::Vertical => self.0.slice(s![.., position..position + 1]),   //column
         };
         String::from_iter(chars)
     }
@@ -265,12 +278,12 @@ fn place_word_at(word: &str, c0: usize, r0: usize, dir: Direction) -> Vec<Letter
     let mut result = Vec::new();
     for (i, c) in word.chars().enumerate() {
         result.push(match &dir {
-            horizontal => LetterPlacement {
+            Direction::Horizontal => LetterPlacement {
                 letter: c,
                 col: c0 + i,
                 row: r0,
             },
-            vertical => LetterPlacement {
+            Direction::Vertical => LetterPlacement {
                 letter: c,
                 col: c0,
                 row: r0 + i,
