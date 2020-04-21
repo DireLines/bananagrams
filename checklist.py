@@ -1,34 +1,3 @@
-def wordPlacementsFor(word,position,horizontal,grid):
-    result = []
-    box = boundingBox(grid)
-    lower = box.ymin
-    if(horizontal):
-        lower = box.xmin
-    indexInWord = 0
-    for i in range(lower-len(word),lower+1):
-        thisResult = []
-        connected = False
-        if(horizontal):
-            for j in range(len(word)):
-                if(board[position][i+j] == ' '):
-                    thisResult.append(LetterPlacement(word[j],position,i+j))
-                    continue
-                if(board[position][i+j] == word[j]):
-                    connected = True
-                else:
-                    break
-        else:
-            for j in range(len(word)):
-                if(board[i+j][position] == ' '):
-                    thisResult.append(LetterPlacement(word[j],i+j,position))
-                    continue
-                if(board[i+j][position] == word[j]):
-                    connected = True
-                else:
-                    break
-        if len(thisResult) > 0 and connected:
-            result.append(thisResult)
-    return result
 def popStack():
     stackframe = wordstack.pop()
     for placed_letter in stackframe.placed_letters:
