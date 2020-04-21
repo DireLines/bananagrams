@@ -243,7 +243,39 @@ impl Grid {
         position: usize,
         dir: Direction,
     ) -> Vec<Vec<LetterPlacement>> {
-        unimplemented!();
+        let mut result = Vec::new();
+        let bounds = self.bounding_box();
+        let lower = match dir {
+            Direction::Horizontal => bounds.min_col,
+            Direction::Vertical => bounds.min_row,
+        };
+        for i in lower - word.len()..lower + 1 {
+            let mut this_result: Vec<LetterPlacement> = Vec::new();
+            let mut connected: bool = false;
+            for j in 0..word.len() {
+                let row = match dir {
+                    Direction::Horizontal => position,
+                    Direction::Vertical => i + j,
+                };
+                let col = match dir {
+                    Direction::Horizontal => i + j,
+                    Direction::Vertical => position,
+                };
+                match self.get(row, col) {
+                    ' ' => this_result.push(LetterPlacement {
+                        letter: word.chars().nth(j).unwrap(),
+                        row,
+                        col,
+                    }),
+                    x if x == word.chars().nth(j).unwrap() => connected = true,
+                    _ => break,
+                };
+            }
+            if this_result.len() > 0 && connected {
+                result.push(this_result);
+            }
+        }
+        result
     }
 
     fn words_at(&self, position: usize, dir: Direction) -> String {
@@ -256,6 +288,10 @@ impl Grid {
 
     fn insert(&mut self, r: usize, c: usize, val: char) {
         self.0[[r, c]] = val;
+    }
+
+    fn get(&self, r: usize, c: usize) -> char {
+        self.0[[r, c]]
     }
 }
 
