@@ -70,18 +70,26 @@ Options:
     println!("{:?}", words);
 
     let board_dim = tiles.len() * 2;
-    let mut board = Grid(Array2::from_elem((board_dim, board_dim), ' '));
-    let mut minimum: Option<&Grid> = None;
-    let mut minimum_area: usize = board_dim * board_dim;
-    let mut wordstack: Vec<WordStackFrame> = Vec::new();
-    wordstack.push(WordStackFrame {
+    let mut state = SolveState {
+        board: Grid(Array2::from_elem((board_dim, board_dim), ' ')),
+        minimum: None,
+        minimum_area: board_dim * board_dim,
+        wordstack: Vec::new(),
+        hashed_boards: HashSet::new(),
+    };
+    state.wordstack.push(WordStackFrame {
         remaining_tiles: tiles,
         available_words: words,
         placed_letters: Vec::new(),
         recursion_depth: 0,
     });
 
-    let mut hashed_boards: HashSet<u64> = HashSet::new();
+    if let Some(min) = find_minimum_area_configuration(state) {
+        println!("Minimum solution:");
+        min.print();
+    } else {
+        print!("Impossible to solve with these tiles");
+    }
 }
 
 //utils
@@ -162,7 +170,7 @@ enum Direction {
     Horizontal,
 }
 
-#[derive(Hash)]
+#[derive(Hash, Clone)]
 struct Grid(Array2<char>);
 
 impl Grid {
@@ -292,6 +300,18 @@ impl Grid {
     fn get(&self, r: usize, c: usize) -> char {
         self.0[[r, c]]
     }
+
+    fn place_letter(&mut self, pl: &LetterPlacement) {
+        self.insert(pl.row, pl.col, pl.letter);
+    }
+}
+
+struct SolveState {
+    board: Grid,
+    minimum: Option<Grid>,
+    minimum_area: usize,
+    wordstack: Vec<WordStackFrame>,
+    hashed_boards: HashSet<u64>,
 }
 
 fn can_be_made_with(word: &str, tiles: &[char]) -> bool {
@@ -324,12 +344,27 @@ fn place_word_at(word: &str, c0: usize, r0: usize, dir: Direction) -> Vec<Letter
     result
 }
 
-fn pop_stack() {
-    unimplemented!();
+fn pop_stack(state: &mut SolveState) {
+    if let Some(stackframe) = state.wordstack.pop() {
+        for placed_letter in stackframe.placed_letters {
+            state
+                .board
+                .insert(placed_letter.row, placed_letter.col, ' ');
+        }
+    }
 }
 
-fn find_minimum_area_configuration() {
-    unimplemented!();
+fn find_minimum_area_configuration(mut state: SolveState) -> Option<Grid> {
+    pop_stack(&mut state);
+    // let mystackframe = &state.wordstack.last().unwrap();
+    // let mut tiles = mystackframe.remaining_tiles.clone();
+    // if mystackframe.recursion_depth > 0 {
+    //     //actually place tiles we are assigned
+    //     for ltr in &mystackframe.placed_letters {
+    //         state.board.place_letter(&ltr);
+    //     }
+    // }
+    state.minimum
 }
 
 fn hash<T: Hash>(t: &T) -> u64 {
@@ -337,6 +372,8 @@ fn hash<T: Hash>(t: &T) -> u64 {
     t.hash(&mut s);
     s.finish()
 }
+
+// fn remove_first<T: PartialEq>(item: &T, v: &Vec<T>) -> Vec<T> {}
 
 #[test]
 fn hash_grids() {
