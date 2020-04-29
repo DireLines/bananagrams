@@ -381,11 +381,11 @@ fn pop_stack() {
 fn find_minimum_area_configuration(preemptive_checking: bool) {
     STATE.with(|s| {
         let mut state = s.borrow_mut();
-        let mystackframe = state.wordstack.last().unwrap().clone();
+        let mystackframe = &state.wordstack.last().unwrap().clone();
         let mut tiles = mystackframe.remaining_tiles.clone();
         if mystackframe.recursion_depth > 0 {
             //actually place tiles we are assigned
-            for ltr in &mystackframe.placed_letters {
+            for ltr in mystackframe.placed_letters {
                 state.board.place_letter(&ltr);
             }
         }
@@ -403,10 +403,12 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
             pop_stack();
             return;
         }
-        if preemptive_checking && !board.valid_bananagrams(&mystackframe.available_words) {
+        if preemptive_checking && !board.valid_bananagrams(mystackframe.available_words) {
             pop_stack();
             return;
         }
+
+        if (mystackframe.recursion_depth == 0) {}
     });
 }
 

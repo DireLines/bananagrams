@@ -1,8 +1,3 @@
-def popStack():
-    stackframe = wordstack.pop()
-    for placed_letter in stackframe.placed_letters:
-        board[placed_letter.x][placed_letter.y] = " "
-
 def findMinimumAreaConfiguration():
     #globals
     global board
