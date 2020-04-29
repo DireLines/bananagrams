@@ -2,6 +2,7 @@ use ndarray::Array2;
 use rand::prelude::*;
 use regex::Regex;
 use std::{
+    cell::RefCell,
     cmp::{max, min},
     collections::{hash_map::DefaultHasher, HashSet},
     env,
@@ -23,6 +24,11 @@ macro_rules! typecheck {
         let _: () = $e;
     };
 }
+
+thread_local! {
+    static STATE: RefCell<SolveState> = RefCell::new(SolveState::empty());
+}
+// pub static STATE: RefCell<SolveState> = RefCell::new(SolveState::empty());
 
 fn main() {
     let numargs = env::args().count();
@@ -70,21 +76,24 @@ Options:
     println!("{:?}", words);
 
     let board_dim = tiles.len() * 2;
-    let mut state = SolveState {
-        board: Grid(Array2::from_elem((board_dim, board_dim), ' ')),
-        minimum: None,
-        minimum_area: board_dim * board_dim,
-        wordstack: Vec::new(),
-        hashed_boards: HashSet::new(),
-    };
-    state.wordstack.push(WordStackFrame {
-        remaining_tiles: tiles,
-        available_words: words,
-        placed_letters: Vec::new(),
-        recursion_depth: 0,
+    //init
+    STATE.with(|state| {
+        state.replace(SolveState {
+            board: Grid(Array2::from_elem((board_dim, board_dim), ' ')),
+            minimum: None,
+            minimum_area: board_dim * board_dim,
+            wordstack: Vec::new(),
+            hashed_boards: HashSet::new(),
+        });
+        state.borrow_mut().wordstack.push(WordStackFrame {
+            remaining_tiles: tiles,
+            available_words: words,
+            placed_letters: Vec::new(),
+            recursion_depth: 0,
+        });
     });
 
-    if let Some(min) = find_minimum_area_configuration(state) {
+    if let Some(min) = find_minimum_area_configuration() {
         println!("Minimum solution:");
         min.print();
     } else {
@@ -187,7 +196,7 @@ impl Grid {
         let mut max_row = 0;
         for r in 0..width {
             for c in 0..height {
-                if (self.0[[r, c]] != ' ') {
+                if self.0[[r, c]] != ' ' {
                     min_col = min(min_col, c);
                     max_col = max(max_col, c);
                     min_row = min(min_row, r);
@@ -314,6 +323,18 @@ struct SolveState {
     hashed_boards: HashSet<u64>,
 }
 
+impl SolveState {
+    fn empty() -> Self {
+        Self {
+            board: Grid(Array2::from_elem((0, 0), ' ')),
+            minimum: None,
+            minimum_area: 0,
+            wordstack: Vec::new(),
+            hashed_boards: HashSet::<u64>::new(),
+        }
+    }
+}
+
 fn can_be_made_with(word: &str, tiles: &[char]) -> bool {
     let mut tiles = tiles.to_owned();
     for c in word.chars() {
@@ -344,18 +365,25 @@ fn place_word_at(word: &str, c0: usize, r0: usize, dir: Direction) -> Vec<Letter
     result
 }
 
-fn pop_stack(state: &mut SolveState) {
-    if let Some(stackframe) = state.wordstack.pop() {
-        for placed_letter in stackframe.placed_letters {
-            state
-                .board
-                .insert(placed_letter.row, placed_letter.col, ' ');
+fn pop_stack() {
+    STATE.with(|state| {
+        if let Some(stackframe) = state.borrow_mut().wordstack.pop() {
+            for placed_letter in stackframe.placed_letters {
+                state
+                    .borrow_mut()
+                    .board
+                    .insert(placed_letter.row, placed_letter.col, ' ');
+            }
         }
-    }
+    });
 }
 
-fn find_minimum_area_configuration(mut state: SolveState) -> Option<Grid> {
-    pop_stack(&mut state);
+fn find_minimum_area_configuration() -> Option<Grid> {
+    STATE.with(|state| {
+        pop_stack();
+        return Some(state.borrow().minimum.clone());
+    });
+    None
     // let mystackframe = &state.wordstack.last().unwrap();
     // let mut tiles = mystackframe.remaining_tiles.clone();
     // if mystackframe.recursion_depth > 0 {
@@ -364,7 +392,6 @@ fn find_minimum_area_configuration(mut state: SolveState) -> Option<Grid> {
     //         state.board.place_letter(&ltr);
     //     }
     // }
-    state.minimum
 }
 
 fn hash<T: Hash>(t: &T) -> u64 {
