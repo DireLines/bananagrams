@@ -28,7 +28,6 @@ macro_rules! typecheck {
 thread_local! {
     static STATE: RefCell<SolveState> = RefCell::new(SolveState::empty());
 }
-// pub static STATE: RefCell<SolveState> = RefCell::new(SolveState::empty());
 
 fn main() {
     let numargs = env::args().count();
@@ -75,8 +74,8 @@ Options:
     }
     println!("{:?}", words);
 
+    let preemptive_checking = arg_exists("-c");
     let board_dim = tiles.len() * 2;
-    //init
     STATE.with(|state| {
         state.replace(SolveState {
             board: Grid(Array2::from_elem((board_dim, board_dim), ' ')),
@@ -91,14 +90,14 @@ Options:
             placed_letters: Vec::new(),
             recursion_depth: 0,
         });
+        find_minimum_area_configuration(preemptive_checking);
+        if let Some(min) = &state.borrow().minimum {
+            println!("Minimum solution:");
+            min.print();
+        } else {
+            print!("Impossible to solve with these tiles");
+        }
     });
-
-    if let Some(min) = find_minimum_area_configuration() {
-        println!("Minimum solution:");
-        min.print();
-    } else {
-        print!("Impossible to solve with these tiles");
-    }
 }
 
 //utils
@@ -324,6 +323,7 @@ struct SolveState {
 }
 
 impl SolveState {
+    //it doesn't really matter what these values are, they get reinitialized in main
     fn empty() -> Self {
         Self {
             board: Grid(Array2::from_elem((0, 0), ' ')),
@@ -367,10 +367,10 @@ fn place_word_at(word: &str, c0: usize, r0: usize, dir: Direction) -> Vec<Letter
 
 fn pop_stack() {
     STATE.with(|state| {
-        if let Some(stackframe) = state.borrow_mut().wordstack.pop() {
+        let mut state = state.borrow_mut();
+        if let Some(stackframe) = state.wordstack.pop() {
             for placed_letter in stackframe.placed_letters {
                 state
-                    .borrow_mut()
                     .board
                     .insert(placed_letter.row, placed_letter.col, ' ');
             }
@@ -378,20 +378,36 @@ fn pop_stack() {
     });
 }
 
-fn find_minimum_area_configuration() -> Option<Grid> {
-    STATE.with(|state| {
-        pop_stack();
-        return Some(state.borrow().minimum.clone());
+fn find_minimum_area_configuration(preemptive_checking: bool) {
+    STATE.with(|s| {
+        let mut state = s.borrow_mut();
+        let mystackframe = state.wordstack.last().unwrap().clone();
+        let mut tiles = mystackframe.remaining_tiles.clone();
+        if mystackframe.recursion_depth > 0 {
+            //actually place tiles we are assigned
+            for ltr in &mystackframe.placed_letters {
+                state.board.place_letter(&ltr);
+            }
+        }
+        let board = &state.board.clone();
+
+        //early exit checks
+        let boardhash = hash(board);
+        if state.hashed_boards.contains(&boardhash) {
+            pop_stack();
+            return;
+        }
+        state.hashed_boards.insert(boardhash);
+        let area = board.bounding_box_area();
+        if (area > state.minimum_area) {
+            pop_stack();
+            return;
+        }
+        if preemptive_checking && !board.valid_bananagrams(&mystackframe.available_words) {
+            pop_stack();
+            return;
+        }
     });
-    None
-    // let mystackframe = &state.wordstack.last().unwrap();
-    // let mut tiles = mystackframe.remaining_tiles.clone();
-    // if mystackframe.recursion_depth > 0 {
-    //     //actually place tiles we are assigned
-    //     for ltr in &mystackframe.placed_letters {
-    //         state.board.place_letter(&ltr);
-    //     }
-    // }
 }
 
 fn hash<T: Hash>(t: &T) -> u64 {
