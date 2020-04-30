@@ -1,4 +1,4 @@
-use ndarray::{Array2, Dim};
+use ndarray::Array2;
 use rand::prelude::*;
 use regex::Regex;
 use std::{
@@ -16,20 +16,12 @@ use std::{
 #[macro_use]
 extern crate ndarray;
 
-//evaluates the type of an expr
-//and throws a mismatched type error
-macro_rules! typecheck {
-    ($e:expr) => {
-        #[cfg(debug_assertions)]
-        let _: () = $e;
-    };
-}
-
 thread_local! {
     static STATE: RefCell<SolveState> = RefCell::new(SolveState::empty());
 }
 
 fn main() {
+    test_func();
     let numargs = env::args().count();
     if numargs < 2 || arg_exists("-help") {
         println!(
@@ -148,7 +140,7 @@ struct LetterPlacement {
     col: usize,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct BoundingBox {
     min_col: usize,
     max_col: usize,
@@ -369,7 +361,7 @@ fn place_word_at(word: &str, c0: usize, r0: usize, dir: Direction) -> Vec<Letter
     result
 }
 
-macro_rules! pop_and_finish {
+macro_rules! pop_stack {
     ($state:ident) => {
         let mut state = $state.borrow_mut();
         if let Some(stackframe) = state.wordstack.pop() {
@@ -379,22 +371,13 @@ macro_rules! pop_and_finish {
                     .insert(placed_letter.row, placed_letter.col, ' ');
             }
         }
-        return;
     };
 }
 fn find_minimum_area_configuration(preemptive_checking: bool) {
     STATE.with(|s| {
         let mystackframe = (*s.borrow_mut()).wordstack.last().unwrap().clone(); //TODO why do I need clone here?
         let mut tiles = mystackframe.remaining_tiles.clone();
-        println!("Before:");
-        for _ in 0..mystackframe.recursion_depth {
-            print!("    ");
-        }
-        print!("{:?}\n", &mystackframe.placed_letters);
-        for _ in 0..mystackframe.recursion_depth {
-            print!("    ");
-        }
-        print!("{:?}\n", tiles);
+
         if mystackframe.recursion_depth > 0 {
             //actually place tiles we are assigned
             for ltr in &mystackframe.placed_letters {
@@ -404,46 +387,39 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
             }
         }
 
-        println!("After:");
-        for _ in 0..mystackframe.recursion_depth {
-            print!("    ");
-        }
-        print!("{:?}\n", &mystackframe.placed_letters);
-        for _ in 0..mystackframe.recursion_depth {
-            print!("    ");
-        }
-        print!("{:?}\n", tiles);
-
         let board = &(*s.borrow()).board.clone();
-        board.print();
 
         //early exit checks
         let boardhash = hash(board);
         if (*s.borrow()).hashed_boards.contains(&boardhash) {
-            pop_and_finish!(s);
+            pop_stack!(s);
+            return;
         }
         (*s.borrow_mut()).hashed_boards.insert(boardhash);
         let area = board.bounding_box_area();
-        if (area > (*s.borrow()).minimum_area) {
-            pop_and_finish!(s);
+        if area > (*s.borrow()).minimum_area {
+            pop_stack!(s);
+            return;
         }
         if preemptive_checking && !board.valid_bananagrams(&mystackframe.available_words) {
-            pop_and_finish!(s);
+            pop_stack!(s);
+            return;
         }
 
         //Base Case: we are out of tiles so we found a solution
         if tiles.is_empty() {
-            if (board.valid_bananagrams(&mystackframe.available_words)) {
+            if board.valid_bananagrams(&mystackframe.available_words) {
                 (*s.borrow_mut()).minimum = Some(board.clone());
                 (*s.borrow_mut()).minimum_area = area;
                 println!("New Smallest Solution Found!");
                 board.print();
             }
-            pop_and_finish!(s);
+            pop_stack!(s);
+            return;
         }
 
         //Base Case: we have an empty board and should place a first word
-        if (mystackframe.recursion_depth == 0) {
+        if mystackframe.recursion_depth == 0 {
             for word in &mystackframe.available_words {
                 println!("{}", &word);
                 let midpoint = (*s.borrow()).board.midpoint();
@@ -456,12 +432,12 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
                 });
                 find_minimum_area_configuration(preemptive_checking);
             }
-            pop_and_finish!(s);
+            pop_stack!(s);
+            return;
         }
 
         let bounds = board.bounding_box();
-        for row in bounds.min_row..bounds.max_row {
-            println!("row {} before: {:?}", row, &mystackframe.available_words);
+        for row in bounds.min_row..bounds.max_row + 1 {
             let regex = board.regex_for(row, Direction::Horizontal, &mystackframe.remaining_tiles);
             let newwords: Vec<String> = mystackframe
                 .available_words
@@ -469,7 +445,6 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
                 .filter(|w| regex.is_match(w))
                 .map(|w| w.to_string())
                 .collect();
-            println!("row {} after: {:?}", row, &newwords);
             for word in &newwords {
                 let word_placements = board.word_placements_for(&word, row, Direction::Horizontal);
                 for placement in word_placements {
@@ -490,8 +465,7 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
                 }
             }
         }
-        for col in bounds.min_col..bounds.max_col {
-            println!("col {} before: {:?}", col, &mystackframe.available_words);
+        for col in bounds.min_col..bounds.max_col + 1 {
             let regex = board.regex_for(col, Direction::Vertical, &mystackframe.remaining_tiles);
             let newwords: Vec<String> = mystackframe
                 .available_words
@@ -499,7 +473,6 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
                 .filter(|w| regex.is_match(w))
                 .map(|w| w.to_string())
                 .collect();
-            println!("col {} after: {:?}", col, &newwords);
             for word in &newwords {
                 let word_placements = board.word_placements_for(&word, col, Direction::Vertical);
                 for placement in word_placements {
@@ -520,7 +493,7 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
                 }
             }
         }
-        pop_and_finish!(s);
+        pop_stack!(s);
     });
 }
 
@@ -528,4 +501,55 @@ fn hash<T: Hash>(t: &T) -> u64 {
     let mut s = DefaultHasher::new();
     t.hash(&mut s);
     s.finish()
+}
+
+fn test_func() {
+    // let mut grid = Grid(Array2::from_elem((10, 10), ' '));
+    // grid.insert(5, 5, 'o');
+    // grid.insert(7, 6, 'o');
+    // grid.insert(3, 4, 'o');
+    // grid.print();
+}
+
+#[test]
+fn bounding_box() {
+    let mut grid = Grid(Array2::from_elem((10, 10), ' '));
+    grid.insert(5, 5, 'o');
+    let bounds = grid.bounding_box();
+    assert_eq!(bounds.min_row, 5);
+    assert_eq!(bounds.max_row, 5);
+    assert_eq!(bounds.min_col, 5);
+    assert_eq!(bounds.max_col, 5);
+    grid.insert(7, 6, 'o');
+    let bounds = grid.bounding_box();
+    assert_eq!(bounds.min_row, 5);
+    assert_eq!(bounds.max_row, 7);
+    assert_eq!(bounds.min_col, 5);
+    assert_eq!(bounds.max_col, 6);
+    grid.insert(3, 4, 'o');
+    let bounds = grid.bounding_box();
+    assert_eq!(bounds.min_row, 3);
+    assert_eq!(bounds.max_row, 7);
+    assert_eq!(bounds.min_col, 4);
+    assert_eq!(bounds.max_col, 6);
+    assert_eq!(grid.bounding_box_area(), 15);
+}
+
+// #[test]
+// fn regex_filter() {
+//     let mut grid = Grid(Array2::from_elem((10, 10), ' '));
+//     let words = vec!["oo"]
+//     grid.insert(5, 6, 'o');
+// }
+
+#[test]
+fn regex() {
+    let regex_string = "^a[ab]*a$";
+    let r = Regex::new(&regex_string).unwrap();
+    assert!(r.is_match("aa"));
+    assert!(r.is_match("aba"));
+    assert!(r.is_match("abbabababababbaa"));
+    assert!(!r.is_match("a"));
+    assert!(!r.is_match("abaca"));
+    assert!(!r.is_match("cabac"));
 }
