@@ -91,7 +91,6 @@ Options:
             recursion_depth: 0,
         });
         find_minimum_area_configuration(preemptive_checking);
-        println!("Ayy");
         if let Some(min) = &state.borrow_mut().minimum {
             println!("Minimum solution:");
             min.print();
@@ -142,7 +141,7 @@ fn read_lines<P: AsRef<Path>>(filename: P) -> io::Result<io::Lines<io::BufReader
 }
 
 //structs
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct LetterPlacement {
     letter: char,
     row: usize,
@@ -166,7 +165,7 @@ impl BoundingBox {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct WordStackFrame {
     remaining_tiles: Vec<char>,
     available_words: Vec<String>,
@@ -372,9 +371,10 @@ fn place_word_at(word: &str, c0: usize, r0: usize, dir: Direction) -> Vec<Letter
 
 macro_rules! pop_and_finish {
     ($state:ident) => {
-        if let Some(stackframe) = $state.wordstack.pop() {
+        let mut state = $state.borrow_mut();
+        if let Some(stackframe) = state.wordstack.pop() {
             for placed_letter in stackframe.placed_letters {
-                $state
+                state
                     .board
                     .insert(placed_letter.row, placed_letter.col, ' ');
             }
@@ -384,51 +384,63 @@ macro_rules! pop_and_finish {
 }
 fn find_minimum_area_configuration(preemptive_checking: bool) {
     STATE.with(|s| {
-        let mut state = s.borrow_mut();
-        let mystackframe = state.wordstack.last().unwrap().clone(); //TODO why do I need clone here?
-        let mut tiles = &mystackframe.remaining_tiles.clone();
+        let mystackframe = (*s.borrow_mut()).wordstack.last().unwrap().clone(); //TODO why do I need clone here?
+
+        //Base Case: we have an empty board and should place a first word
+        if (mystackframe.recursion_depth == 0) {
+            for word in &mystackframe.available_words {
+                println!("{}", &word);
+                let midpoint = (*s.borrow()).board.midpoint();
+                let placement = place_word_at(&word, midpoint.0, midpoint.1, Direction::Horizontal);
+                (*s.borrow_mut()).wordstack.push(WordStackFrame {
+                    remaining_tiles: mystackframe.remaining_tiles.clone(),
+                    available_words: mystackframe.available_words.clone(),
+                    placed_letters: placement,
+                    recursion_depth: 1,
+                });
+                find_minimum_area_configuration(preemptive_checking);
+            }
+            pop_and_finish!(s);
+        }
+        let mut tiles = mystackframe.remaining_tiles.clone();
         if mystackframe.recursion_depth > 0 {
             //actually place tiles we are assigned
             for ltr in &mystackframe.placed_letters {
-                state.board.place_letter(&ltr);
+                (*s.borrow_mut()).board.place_letter(&ltr);
             }
         }
-        let board = &state.board.clone(); //TODO why do I need clone here?
 
+        let board = &(*s.borrow()).board.clone();
         //early exit checks
         let boardhash = hash(board);
-        if state.hashed_boards.contains(&boardhash) {
-            pop_and_finish!(state);
+        if (*s.borrow()).hashed_boards.contains(&boardhash) {
+            pop_and_finish!(s);
         }
-        state.hashed_boards.insert(boardhash);
+        (*s.borrow_mut()).hashed_boards.insert(boardhash);
         let area = board.bounding_box_area();
-        if (area > state.minimum_area) {
-            pop_and_finish!(state);
+        if (area > (*s.borrow()).minimum_area) {
+            pop_and_finish!(s);
         }
         if preemptive_checking && !board.valid_bananagrams(&mystackframe.available_words) {
-            pop_and_finish!(state);
+            pop_and_finish!(s);
         }
 
+        //Base Case: we are out of tiles so we found a solution
         if tiles.is_empty() {
-            //Base Case: we are out of tiles so we found a solution
             if (board.valid_bananagrams(&mystackframe.available_words)) {
-                state.minimum = Some(board.clone());
-                state.minimum_area = area;
+                (*s.borrow_mut()).minimum = Some(board.clone());
+                (*s.borrow_mut()).minimum_area = area;
                 println!("New Smallest Solution Found!");
                 board.print();
             }
-            pop_and_finish!(state);
+            pop_and_finish!(s);
         }
 
-        if (mystackframe.recursion_depth == 0) {
-            //Base Case: we have an empty board and should place a first word
-            for word in &mystackframe.available_words {
-                println!("{}", &word);
-                // let placement = place_word_at(&word,)
-                find_minimum_area_configuration(preemptive_checking);
-            }
-            pop_and_finish!(state);
-        }
+        // let bounds = board.bounding_box();
+        // for row in bounds.min_row..bounds.max_row{
+        //     let regex = board.regex_for();
+        // }
+        pop_and_finish!(s);
     });
 }
 
@@ -437,8 +449,6 @@ fn hash<T: Hash>(t: &T) -> u64 {
     t.hash(&mut s);
     s.finish()
 }
-
-// fn remove_first<T: PartialEq>(item: &T, v: &Vec<T>) -> Vec<T> {}
 
 #[test]
 fn hash_grids() {
