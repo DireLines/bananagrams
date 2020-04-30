@@ -411,6 +411,7 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
         }
 
         let board = &(*s.borrow()).board.clone();
+        board.print();
         //early exit checks
         let boardhash = hash(board);
         if (*s.borrow()).hashed_boards.contains(&boardhash) {
@@ -436,10 +437,63 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
             pop_and_finish!(s);
         }
 
-        // let bounds = board.bounding_box();
-        // for row in bounds.min_row..bounds.max_row{
-        //     let regex = board.regex_for();
-        // }
+        let bounds = board.bounding_box();
+        for row in bounds.min_row..bounds.max_row {
+            let regex = board.regex_for(row, Direction::Horizontal, &mystackframe.remaining_tiles);
+            let newwords: Vec<String> = mystackframe
+                .available_words
+                .iter()
+                .filter(|w| regex.is_match(w))
+                .map(|w| w.to_string())
+                .collect();
+            for word in newwords {
+                let word_placements = board.word_placements_for(&word, row, Direction::Horizontal);
+                for placement in word_placements {
+                    //check if word can be made
+                    let tilesplaced: String = placement.iter().map(|lp| lp.letter).collect();
+                    if !can_be_made_with(&tilesplaced, &mystackframe.remaining_tiles) {
+                        continue;
+                    }
+                    //generate new stack frame
+                    (*s.borrow_mut()).wordstack.push(WordStackFrame {
+                        remaining_tiles: mystackframe.remaining_tiles.clone(),
+                        available_words: mystackframe.available_words.clone(),
+                        placed_letters: placement,
+                        recursion_depth: &mystackframe.recursion_depth + 1,
+                    });
+                    //recurse
+                    find_minimum_area_configuration(preemptive_checking);
+                }
+            }
+        }
+        for col in bounds.min_col..bounds.max_col {
+            let regex = board.regex_for(col, Direction::Vertical, &mystackframe.remaining_tiles);
+            let newwords: Vec<String> = mystackframe
+                .available_words
+                .iter()
+                .filter(|w| regex.is_match(w))
+                .map(|w| w.to_string())
+                .collect();
+            for word in newwords {
+                let word_placements = board.word_placements_for(&word, col, Direction::Vertical);
+                for placement in word_placements {
+                    //check if word can be made
+                    let tilesplaced: String = placement.iter().map(|lp| lp.letter).collect();
+                    if !can_be_made_with(&tilesplaced, &mystackframe.remaining_tiles) {
+                        continue;
+                    }
+                    //generate new stack frame
+                    (*s.borrow_mut()).wordstack.push(WordStackFrame {
+                        remaining_tiles: mystackframe.remaining_tiles.clone(),
+                        available_words: mystackframe.available_words.clone(),
+                        placed_letters: placement,
+                        recursion_depth: &mystackframe.recursion_depth + 1,
+                    });
+                    //recurse
+                    find_minimum_area_configuration(preemptive_checking);
+                }
+            }
+        }
         pop_and_finish!(s);
     });
 }
