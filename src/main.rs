@@ -175,7 +175,14 @@ struct Grid(Array2<char>);
 
 impl Grid {
     fn print(&self) {
-        println!("{}", self.0);
+        let bounds = self.bounding_box();
+        for row in bounds.min_row..bounds.max_row + 1 {
+            for col in bounds.min_col..bounds.max_col + 1 {
+                print!("{} ", self.0[[row, col]]);
+            }
+            print!("\n");
+        }
+        println!("Area: {}", self.bounding_box_area());
     }
 
     fn bounding_box(&self) -> BoundingBox {
@@ -450,7 +457,7 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
                 for placement in word_placements {
                     //check if word can be made
                     let tilesplaced: String = placement.iter().map(|lp| lp.letter).collect();
-                    if !can_be_made_with(&tilesplaced, &mystackframe.remaining_tiles) {
+                    if !can_be_made_with(&tilesplaced, &tiles) {
                         continue;
                     }
                     //generate new stack frame
@@ -478,7 +485,7 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
                 for placement in word_placements {
                     //check if word can be made
                     let tilesplaced: String = placement.iter().map(|lp| lp.letter).collect();
-                    if !can_be_made_with(&tilesplaced, &mystackframe.remaining_tiles) {
+                    if !can_be_made_with(&tilesplaced, &tiles) {
                         continue;
                     }
                     //generate new stack frame
