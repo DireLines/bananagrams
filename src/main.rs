@@ -1,4 +1,4 @@
-use ndarray::Array2;
+use ndarray::{Array2, Dim};
 use rand::prelude::*;
 use regex::Regex;
 use std::{
@@ -91,7 +91,8 @@ Options:
             recursion_depth: 0,
         });
         find_minimum_area_configuration(preemptive_checking);
-        if let Some(min) = &state.borrow().minimum {
+        println!("Ayy");
+        if let Some(min) = &state.borrow_mut().minimum {
             println!("Minimum solution:");
             min.print();
         } else {
@@ -312,6 +313,10 @@ impl Grid {
     fn place_letter(&mut self, pl: &LetterPlacement) {
         self.insert(pl.row, pl.col, pl.letter);
     }
+
+    fn midpoint(&self) -> (usize, usize) {
+        (self.0.shape()[0] / 2, self.0.shape()[1] / 2)
+    }
 }
 
 struct SolveState {
@@ -365,50 +370,65 @@ fn place_word_at(word: &str, c0: usize, r0: usize, dir: Direction) -> Vec<Letter
     result
 }
 
-fn pop_stack() {
-    STATE.with(|state| {
-        let mut state = state.borrow_mut();
-        if let Some(stackframe) = state.wordstack.pop() {
+macro_rules! pop_and_finish {
+    ($state:ident) => {
+        if let Some(stackframe) = $state.wordstack.pop() {
             for placed_letter in stackframe.placed_letters {
-                state
+                $state
                     .board
                     .insert(placed_letter.row, placed_letter.col, ' ');
             }
         }
-    });
+        return;
+    };
 }
-
 fn find_minimum_area_configuration(preemptive_checking: bool) {
     STATE.with(|s| {
         let mut state = s.borrow_mut();
-        let mystackframe = &state.wordstack.last().unwrap().clone();
-        let mut tiles = mystackframe.remaining_tiles.clone();
+        let mystackframe = state.wordstack.last().unwrap().clone(); //TODO why do I need clone here?
+        let mut tiles = &mystackframe.remaining_tiles.clone();
         if mystackframe.recursion_depth > 0 {
             //actually place tiles we are assigned
-            for ltr in mystackframe.placed_letters {
+            for ltr in &mystackframe.placed_letters {
                 state.board.place_letter(&ltr);
             }
         }
-        let board = &state.board.clone();
+        let board = &state.board.clone(); //TODO why do I need clone here?
 
         //early exit checks
         let boardhash = hash(board);
         if state.hashed_boards.contains(&boardhash) {
-            pop_stack();
-            return;
+            pop_and_finish!(state);
         }
         state.hashed_boards.insert(boardhash);
         let area = board.bounding_box_area();
         if (area > state.minimum_area) {
-            pop_stack();
-            return;
+            pop_and_finish!(state);
         }
-        if preemptive_checking && !board.valid_bananagrams(mystackframe.available_words) {
-            pop_stack();
-            return;
+        if preemptive_checking && !board.valid_bananagrams(&mystackframe.available_words) {
+            pop_and_finish!(state);
         }
 
-        if (mystackframe.recursion_depth == 0) {}
+        if tiles.is_empty() {
+            //Base Case: we are out of tiles so we found a solution
+            if (board.valid_bananagrams(&mystackframe.available_words)) {
+                state.minimum = Some(board.clone());
+                state.minimum_area = area;
+                println!("New Smallest Solution Found!");
+                board.print();
+            }
+            pop_and_finish!(state);
+        }
+
+        if (mystackframe.recursion_depth == 0) {
+            //Base Case: we have an empty board and should place a first word
+            for word in &mystackframe.available_words {
+                println!("{}", &word);
+                // let placement = place_word_at(&word,)
+                find_minimum_area_configuration(preemptive_checking);
+            }
+            pop_and_finish!(state);
+        }
     });
 }
 
