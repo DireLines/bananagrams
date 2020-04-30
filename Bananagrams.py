@@ -247,7 +247,7 @@ def findMinimumAreaConfiguration():
     if(len(tiles) == 0):
         #Base Case: we are out of tiles so we found a solution
         thisArea = boundingBoxArea(board)
-        if(checkValidBananagrams(board) and ((not foundAnySolution) or (thisArea <= minimumArea))):
+        if(checkValidBananagrams(board) and ((not foundAnySolution) or (thisArea < minimumArea))):
             foundAnySolution = True
             minimum = copy.deepcopy(board)
             minimumArea = thisArea

@@ -175,9 +175,8 @@ struct Grid(Array2<char>);
 
 impl Grid {
     fn print(&self) {
-        let bounds = self.bounding_box();
-        for row in bounds.min_row..bounds.max_row + 1 {
-            for col in bounds.min_col..bounds.max_col + 1 {
+        for row in 0..self.0.dim().0 {
+            for col in 0..self.0.dim().1 {
                 print!("{} ", self.0[[row, col]]);
             }
             print!("\n");
@@ -313,7 +312,7 @@ impl Grid {
     }
 
     fn midpoint(&self) -> (usize, usize) {
-        (self.0.shape()[0] / 2, self.0.shape()[1] / 2)
+        (self.0.dim().0 / 2, self.0.dim().1 / 2)
     }
 }
 
@@ -416,7 +415,7 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
         //Base Case: we are out of tiles so we found a solution
         if tiles.is_empty() {
             if board.valid_bananagrams(&mystackframe.available_words)
-                && ((*s.borrow()).minimum.is_none() || area <= (*s.borrow()).minimum_area)
+                && ((*s.borrow()).minimum.is_none() || area < (*s.borrow()).minimum_area)
             {
                 (*s.borrow_mut()).minimum = Some(board.clone());
                 (*s.borrow_mut()).minimum_area = area;
