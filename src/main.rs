@@ -415,7 +415,9 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
 
         //Base Case: we are out of tiles so we found a solution
         if tiles.is_empty() {
-            if board.valid_bananagrams(&mystackframe.available_words) {
+            if board.valid_bananagrams(&mystackframe.available_words)
+                && ((*s.borrow()).minimum.is_none() || area <= (*s.borrow()).minimum_area)
+            {
                 (*s.borrow_mut()).minimum = Some(board.clone());
                 (*s.borrow_mut()).minimum_area = area;
                 println!("New Smallest Solution Found!");
