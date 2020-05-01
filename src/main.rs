@@ -16,6 +16,16 @@ use std::{
 #[macro_use]
 extern crate ndarray;
 
+macro_rules! time {
+    ($description:literal,$code:block) => {
+        println!("begin {}",$description);
+        let time = std::time::Instant::now();
+        $code
+        println!("time elapsed: {:.5} seconds",time.elapsed().as_secs_f64());
+        println!("end   {}",$description);
+    };
+}
+
 thread_local! {
     static STATE: RefCell<SolveState> = RefCell::new(SolveState::empty());
 }
