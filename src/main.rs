@@ -182,18 +182,25 @@ enum Direction {
 #[derive(Clone, Default)]
 struct Grid(Array2<char>);
 
-impl Hash for Grid {
-    fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) -> () {
+impl Grid {
+    fn hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
         let bounds = self.bounding_box();
         for r in bounds.min_row..bounds.max_row + 1 {
             for c in bounds.min_col..bounds.max_col + 1 {
-                ::core::hash::Hash::hash(&self.0[[r, c]], state);
+                ::core::hash::Hash::hash(&self.0[[r, c]], &mut hasher);
             }
         }
+        let self_hash = hasher.finish();
+        hasher = DefaultHasher::new();
+        for c in bounds.min_col..bounds.max_col + 1 {
+            for r in bounds.min_row..bounds.max_row + 1 {
+                ::core::hash::Hash::hash(&self.0[[r, c]], &mut hasher);
+            }
+        }
+        let transpose_hash = hasher.finish();
+        self_hash | transpose_hash
     }
-}
-
-impl Grid {
     fn print(&self) {
         for row in 0..self.0.dim().0 {
             for col in 0..self.0.dim().1 {
@@ -327,6 +334,14 @@ impl Grid {
         self.0[[r, c]]
     }
 
+    fn clear(&mut self) {
+        for row in 0..self.0.dim().0 {
+            for col in 0..self.0.dim().1 {
+                self.insert(row, col, ' ');
+            }
+        }
+    }
+
     fn place_letter(&mut self, pl: &LetterPlacement) {
         self.insert(pl.row, pl.col, pl.letter);
     }
@@ -404,7 +419,7 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
         let board = &(*s.borrow()).board.clone();
 
         //early exit checks
-        let boardhash = hash_result(board);
+        let boardhash = board.hash();
         if (*s.borrow()).hashed_boards.contains(&boardhash) {
             pop_stack!(s);
             return;
@@ -513,12 +528,6 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
     });
 }
 
-fn hash_result<T: Hash>(t: &T) -> u64 {
-    let mut s = DefaultHasher::new();
-    t.hash(&mut s);
-    s.finish()
-}
-
 #[test]
 fn bounding_box() {
     let mut grid = Grid(Array2::from_elem((10, 10), ' '));
@@ -558,30 +567,49 @@ fn regex() {
 #[test]
 fn hash_grids() {
     let mut board = Grid(Array2::from_elem((5, 5), ' '));
-    let empty_hash = hash_result(&board);
+    let empty_hash = board.hash();
     board.insert(1, 1, 'h');
-    assert!(hash_result(&board) != empty_hash);
+    assert!(board.hash() != empty_hash);
     board.insert(1, 1, ' ');
-    assert!(hash_result(&board) == empty_hash);
+    assert!(board.hash() == empty_hash);
     let mut board2 = Grid(Array2::from_elem((5, 5), ' '));
-    assert!(hash_result(&board2) == empty_hash);
+    assert!(board2.hash() == empty_hash);
 }
 
 #[test]
 fn hash_offset() {
     let mut board = Grid(Array2::from_elem((5, 5), ' '));
-    let empty_hash = hash_result(&board);
+    let empty_hash = board.hash();
     board.insert(1, 1, 'h');
     board.insert(1, 2, 'i');
     board.insert(2, 1, 'i');
-    let hi_hash = hash_result(&board);
-    assert!(hash_result(&board) != empty_hash);
-    board.insert(1, 1, ' ');
-    board.insert(1, 2, ' ');
-    board.insert(2, 1, ' ');
-    assert!(hash_result(&board) == empty_hash);
+    let hi_hash = board.hash();
+    assert!(board.hash() != empty_hash);
+    board.clear();
+    assert!(board.hash() == empty_hash);
     board.insert(2, 2, 'h');
     board.insert(2, 3, 'i');
     board.insert(3, 2, 'i');
-    assert!(hash_result(&board) == hi_hash);
+    assert!(board.hash() == hi_hash);
+}
+
+#[test]
+fn hash_transpose() {
+    let mut board = Grid(Array2::from_elem((5, 5), ' '));
+    let empty_hash = board.hash();
+    board.insert(1, 1, 'h');
+    board.insert(1, 2, 'i');
+    board.insert(2, 1, 'e');
+    board.insert(3, 1, 'y');
+    let hi_hey_hash = board.hash();
+    assert!(board.hash() != empty_hash);
+    board.clear();
+    assert!(board.hash() == empty_hash);
+    board.insert(1, 1, 'h');
+    board.insert(1, 2, 'e');
+    board.insert(1, 3, 'y');
+    board.insert(2, 1, 'i');
+    assert!(board.hash() == hi_hey_hash);
+    board.insert(1, 1, ' ');
+    assert!(board.hash() != hi_hey_hash);
 }
