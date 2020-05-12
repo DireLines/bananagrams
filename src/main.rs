@@ -27,11 +27,10 @@ macro_rules! time {
 }
 
 thread_local! {
-    static STATE: RefCell<SolveState> = RefCell::new(SolveState::empty());
+    static STATE: RefCell<SolveState> = RefCell::new(SolveState::default());
 }
 
 fn main() {
-    test_func();
     let numargs = env::args().count();
     if numargs < 2 || arg_exists("-help") {
         println!(
@@ -180,7 +179,7 @@ enum Direction {
     Horizontal,
 }
 
-#[derive(Hash, Clone)]
+#[derive(Hash, Clone, Default)]
 struct Grid(Array2<char>);
 
 impl Grid {
@@ -326,25 +325,13 @@ impl Grid {
     }
 }
 
+#[derive(Default)]
 struct SolveState {
     board: Grid,
     minimum: Option<Grid>,
     minimum_area: usize,
     wordstack: Vec<WordStackFrame>,
     hashed_boards: HashSet<u64>,
-}
-
-impl SolveState {
-    //it doesn't really matter what these values are, they get reinitialized in main
-    fn empty() -> Self {
-        Self {
-            board: Grid(Array2::from_elem((0, 0), ' ')),
-            minimum: None,
-            minimum_area: 0,
-            wordstack: Vec::new(),
-            hashed_boards: HashSet::<u64>::new(),
-        }
-    }
 }
 
 fn can_be_made_with(word: &str, tiles: &[char]) -> bool {
@@ -521,14 +508,6 @@ fn hash<T: Hash>(t: &T) -> u64 {
     s.finish()
 }
 
-fn test_func() {
-    // let mut grid = Grid(Array2::from_elem((10, 10), ' '));
-    // grid.insert(5, 5, 'o');
-    // grid.insert(7, 6, 'o');
-    // grid.insert(3, 4, 'o');
-    // grid.print();
-}
-
 #[test]
 fn bounding_box() {
     let mut grid = Grid(Array2::from_elem((10, 10), ' '));
@@ -552,13 +531,6 @@ fn bounding_box() {
     assert_eq!(bounds.max_col, 6);
     assert_eq!(grid.bounding_box_area(), 15);
 }
-
-// #[test]
-// fn regex_filter() {
-//     let mut grid = Grid(Array2::from_elem((10, 10), ' '));
-//     let words = vec!["oo"]
-//     grid.insert(5, 6, 'o');
-// }
 
 #[test]
 fn regex() {
