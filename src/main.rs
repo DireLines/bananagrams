@@ -7,23 +7,12 @@ use std::{
     cell::RefCell,
     cmp::{max, min},
     collections::{hash_map::DefaultHasher, HashSet},
-    env,
-    fs::File,
     hash::Hasher,
-    io::{self, BufRead},
     iter::FromIterator,
-    path::Path,
 };
 
-macro_rules! time {
-    ($description:literal,$code:block) => {
-        println!("begin {}",$description);
-        let time = std::time::Instant::now();
-        $code
-        println!("time elapsed: {:.5} seconds",time.elapsed().as_secs_f64());
-        println!("end   {}",$description);
-    };
-}
+mod args;
+use args::*;
 
 //mutable static
 thread_local! {
@@ -36,8 +25,7 @@ lazy_static! {
 }
 
 fn main() {
-    let numargs = env::args().count();
-    if numargs < 2 || arg_exists("-help") {
+    if num_args() < 2 || arg_exists("-help") {
         println!(
             "Usage: ./bananagrams [tiles]
 Ex: ./bananagrams loremipsum -c -s -f common.txt
@@ -101,46 +89,6 @@ Options:
             print!("Impossible to solve with these tiles");
         }
     });
-}
-
-//utils
-
-//if the cmd line arg at index is parseable as a T, return that
-//else return the default value
-fn getarg<T: std::str::FromStr>(index: usize, default: T) -> T {
-    match env::args().nth(index) {
-        Some(arg) => arg.parse().unwrap_or(default),
-        None => default,
-    }
-}
-
-//if this arg was supplied, return its index
-//else None
-fn arg_pos(arg: &str) -> Option<usize> {
-    for (i, argument) in env::args().enumerate() {
-        if argument == arg {
-            return Some(i);
-        }
-    }
-    None
-}
-
-fn arg_exists(arg: &str) -> bool {
-    arg_pos(arg).is_some()
-}
-
-fn after_flag_or<T: std::str::FromStr>(flag: &str, default: T) -> T {
-    match arg_pos(flag) {
-        Some(index) => getarg(index + 1, default),
-        None => default,
-    }
-}
-
-// The output is wrapped in a Result to allow matching on errors
-// Returns an Iterator to the Reader of the lines of the file.
-fn read_lines<P: AsRef<Path>>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>> {
-    let file = File::open(filename)?;
-    Ok(io::BufReader::new(file).lines())
 }
 
 //structs
