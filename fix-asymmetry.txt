@@ -1,0 +1,27 @@
+current
+
+main:
+	do_it
+
+do_it:
+	place word from stack frame
+	generate possible next words
+	for each word:
+		put word into stack frame
+		do_it
+	pop
+
+
+fixed
+
+main:
+	place initial word
+	do_it
+
+do_it
+	generate possible next words
+	for each word
+		place word
+		put word in stack frame
+		do_it
+		pop

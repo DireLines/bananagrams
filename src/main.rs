@@ -7,7 +7,7 @@ use std::{
     collections::{hash_map::DefaultHasher, HashSet},
     env,
     fs::File,
-    hash::{Hash, Hasher},
+    hash::Hasher,
     io::{self, BufRead},
     iter::FromIterator,
     path::Path,
@@ -15,6 +15,9 @@ use std::{
 
 #[macro_use]
 extern crate ndarray;
+
+#[macro_use]
+extern crate lazy_static;
 
 macro_rules! time {
     ($description:literal,$code:block) => {
@@ -26,8 +29,14 @@ macro_rules! time {
     };
 }
 
+//mutable static
 thread_local! {
     static STATE: RefCell<SolveState> = RefCell::new(SolveState::default());
+}
+
+//immutable static
+lazy_static! {
+    static ref PREEMPTIVE_CHECKING: bool = arg_exists("-c");
 }
 
 fn main() {
@@ -75,7 +84,6 @@ Options:
     }
     println!("{:?}", words);
 
-    let preemptive_checking = arg_exists("-c");
     let board_dim = tiles.len() * 2;
     STATE.with(|state| {
         state.replace(SolveState {
@@ -91,7 +99,7 @@ Options:
             placed_letters: Vec::new(),
             recursion_depth: 0,
         });
-        find_minimum_area_configuration(preemptive_checking);
+        find_minimum_area_configuration();
         if let Some(min) = &state.borrow_mut().minimum {
             println!("Minimum solution:");
             min.print();
@@ -402,7 +410,7 @@ macro_rules! pop_stack {
         }
     };
 }
-fn find_minimum_area_configuration(preemptive_checking: bool) {
+fn find_minimum_area_configuration() {
     STATE.with(|s| {
         let mystackframe = (*s.borrow_mut()).wordstack.last().unwrap().clone(); //TODO why do I need clone here?
         let mut tiles = mystackframe.remaining_tiles.clone();
@@ -430,7 +438,7 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
             pop_stack!(s);
             return;
         }
-        if preemptive_checking && !board.valid_bananagrams(&mystackframe.available_words) {
+        if *PREEMPTIVE_CHECKING && !board.valid_bananagrams(&mystackframe.available_words) {
             pop_stack!(s);
             return;
         }
@@ -461,7 +469,7 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
                     placed_letters: placement,
                     recursion_depth: 1,
                 });
-                find_minimum_area_configuration(preemptive_checking);
+                find_minimum_area_configuration();
             }
             pop_stack!(s);
             return;
@@ -492,7 +500,7 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
                         recursion_depth: &mystackframe.recursion_depth + 1,
                     });
                     //recurse
-                    find_minimum_area_configuration(preemptive_checking);
+                    find_minimum_area_configuration();
                 }
             }
         }
@@ -520,7 +528,7 @@ fn find_minimum_area_configuration(preemptive_checking: bool) {
                         recursion_depth: &mystackframe.recursion_depth + 1,
                     });
                     //recurse
-                    find_minimum_area_configuration(preemptive_checking);
+                    find_minimum_area_configuration();
                 }
             }
         }
