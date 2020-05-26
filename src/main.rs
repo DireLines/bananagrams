@@ -6,7 +6,7 @@ use regex::Regex;
 use std::{
     cell::RefCell,
     cmp::{max, min},
-    collections::{hash_map::DefaultHasher, HashSet},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
     env,
     fs::File,
     hash::Hasher,
@@ -25,12 +25,12 @@ macro_rules! time {
     };
 }
 
-//mutable static
+//mutable statics
 thread_local! {
     static STATE: RefCell<SolveState> = RefCell::new(SolveState::default());
 }
 
-//immutable static
+//immutable statics
 lazy_static! {
     static ref PREEMPTIVE_CHECKING: bool = arg_exists("-c");
 }
@@ -81,6 +81,7 @@ Options:
     println!("{:?}", words);
 
     let board_dim = tiles.len() * 2;
+
     STATE.with(|state| {
         state.replace(SolveState {
             minimum: None,
@@ -90,7 +91,8 @@ Options:
         find_minimum_area_configuration(WordStackFrame {
             board: Grid(Array2::from_elem((board_dim, board_dim), ' ')),
             remaining_tiles: tiles,
-            available_words: words,
+            available_words: HashMap::new(),
+            all_words: words,
             placed_letters: Vec::new(),
             recursion_depth: 0,
         });
@@ -172,17 +174,19 @@ impl BoundingBox {
 struct WordStackFrame {
     board: Grid,
     remaining_tiles: Vec<char>,
-    available_words: Vec<String>,
+    available_words: HashMap<(Direction, usize), Vec<String>>,
+    all_words: Vec<String>,
     placed_letters: Vec<LetterPlacement>,
     recursion_depth: usize,
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 enum Direction {
     Vertical,
     Horizontal,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct Grid(Array2<char>);
 
 impl Grid {
@@ -390,6 +394,7 @@ fn place_word_at(word: &str, c0: usize, r0: usize, dir: Direction) -> Vec<Letter
     }
     result
 }
+
 fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
     STATE.with(|s| {
         let mut tiles = mystackframe.remaining_tiles.clone();
@@ -416,13 +421,13 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
         if area > (*s.borrow()).minimum_area {
             return;
         }
-        if *PREEMPTIVE_CHECKING && !board.valid_bananagrams(&mystackframe.available_words) {
+        if *PREEMPTIVE_CHECKING && !board.valid_bananagrams(&mystackframe.all_words) {
             return;
         }
 
         //Base Case: we are out of tiles so we found a solution
         if tiles.is_empty() {
-            if board.valid_bananagrams(&mystackframe.available_words)
+            if board.valid_bananagrams(&mystackframe.all_words)
                 && ((*s.borrow()).minimum.is_none() || area < (*s.borrow()).minimum_area)
             {
                 (*s.borrow_mut()).minimum = Some(board.clone());
@@ -435,7 +440,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
 
         //Base Case: we have an empty board and should place a first word
         if mystackframe.recursion_depth == 0 {
-            for word in &mystackframe.available_words {
+            for word in &mystackframe.all_words {
                 println!("{}", &word);
                 let midpoint = board.midpoint();
                 let placement = place_word_at(&word, midpoint.0, midpoint.1, Direction::Horizontal);
@@ -443,23 +448,49 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
                     board: board.clone(),
                     remaining_tiles: mystackframe.remaining_tiles.clone(),
                     available_words: mystackframe.available_words.clone(),
+                    all_words: mystackframe.all_words.clone(),
                     placed_letters: placement,
                     recursion_depth: 1,
                 });
             }
             return;
         }
-
         let bounds = board.bounding_box();
+        let mut available_words = mystackframe.available_words;
         for row in bounds.min_row..bounds.max_row + 1 {
             let regex = board.regex_for(row, Direction::Horizontal, &mystackframe.remaining_tiles);
-            let newwords: Vec<String> = mystackframe
-                .available_words
+            let prev_words = {
+                if let Some(ws) = available_words.get(&(Direction::Horizontal, row)) {
+                    ws
+                } else {
+                    &mystackframe.all_words
+                }
+            };
+            let newwords: Vec<String> = prev_words
                 .iter()
                 .filter(|w| regex.is_match(w))
                 .map(|w| w.to_string())
                 .collect();
-            for word in &newwords {
+            available_words.insert((Direction::Horizontal, row), newwords.clone());
+        }
+        for col in bounds.min_col..bounds.max_col + 1 {
+            let regex = board.regex_for(col, Direction::Vertical, &mystackframe.remaining_tiles);
+            let prev_words = {
+                if let Some(ws) = available_words.get(&(Direction::Vertical, col)) {
+                    ws
+                } else {
+                    &mystackframe.all_words
+                }
+            };
+            let newwords: Vec<String> = prev_words
+                .iter()
+                .filter(|w| regex.is_match(w))
+                .map(|w| w.to_string())
+                .collect();
+            available_words.insert((Direction::Vertical, col), newwords.clone());
+        }
+        for row in bounds.min_row..bounds.max_row + 1 {
+            for word in available_words.get(&(Direction::Horizontal, row)).unwrap() {
                 let word_placements = board.word_placements_for(&word, row, Direction::Horizontal);
                 for placement in word_placements {
                     //check if word can be made
@@ -471,7 +502,8 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
                     find_minimum_area_configuration(WordStackFrame {
                         board: board.clone(),
                         remaining_tiles: tiles.clone(),
-                        available_words: mystackframe.available_words.clone(),
+                        available_words: available_words.clone(),
+                        all_words: mystackframe.all_words.clone(),
                         placed_letters: placement,
                         recursion_depth: &mystackframe.recursion_depth + 1,
                     });
@@ -479,14 +511,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
             }
         }
         for col in bounds.min_col..bounds.max_col + 1 {
-            let regex = board.regex_for(col, Direction::Vertical, &mystackframe.remaining_tiles);
-            let newwords: Vec<String> = mystackframe
-                .available_words
-                .iter()
-                .filter(|w| regex.is_match(w))
-                .map(|w| w.to_string())
-                .collect();
-            for word in &newwords {
+            for word in available_words.get(&(Direction::Vertical, col)).unwrap() {
                 let word_placements = board.word_placements_for(&word, col, Direction::Vertical);
                 for placement in word_placements {
                     //check if word can be made
@@ -498,7 +523,8 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
                     find_minimum_area_configuration(WordStackFrame {
                         board: board.clone(),
                         remaining_tiles: tiles.clone(),
-                        available_words: mystackframe.available_words.clone(),
+                        available_words: available_words.clone(),
+                        all_words: mystackframe.all_words.clone(),
                         placed_letters: placement,
                         recursion_depth: &mystackframe.recursion_depth + 1,
                     });
