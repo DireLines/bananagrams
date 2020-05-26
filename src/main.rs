@@ -1,3 +1,5 @@
+use lazy_static::lazy_static;
+use ndarray::s;
 use ndarray::Array2;
 use rand::prelude::*;
 use regex::Regex;
@@ -12,12 +14,6 @@ use std::{
     iter::FromIterator,
     path::Path,
 };
-
-#[macro_use]
-extern crate ndarray;
-
-#[macro_use]
-extern crate lazy_static;
 
 macro_rules! time {
     ($description:literal,$code:block) => {
@@ -87,19 +83,17 @@ Options:
     let board_dim = tiles.len() * 2;
     STATE.with(|state| {
         state.replace(SolveState {
-            board: Grid(Array2::from_elem((board_dim, board_dim), ' ')),
             minimum: None,
             minimum_area: board_dim * board_dim,
-            wordstack: Vec::new(),
             hashed_boards: HashSet::new(),
         });
-        state.borrow_mut().wordstack.push(WordStackFrame {
+        find_minimum_area_configuration(WordStackFrame {
+            board: Grid(Array2::from_elem((board_dim, board_dim), ' ')),
             remaining_tiles: tiles,
             available_words: words,
             placed_letters: Vec::new(),
             recursion_depth: 0,
         });
-        find_minimum_area_configuration();
         if let Some(min) = &state.borrow_mut().minimum {
             println!("Minimum solution:");
             min.print();
@@ -176,6 +170,7 @@ impl BoundingBox {
 
 #[derive(Debug, Clone)]
 struct WordStackFrame {
+    board: Grid,
     remaining_tiles: Vec<char>,
     available_words: Vec<String>,
     placed_letters: Vec<LetterPlacement>,
@@ -187,7 +182,7 @@ enum Direction {
     Horizontal,
 }
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 struct Grid(Array2<char>);
 
 impl Grid {
@@ -361,10 +356,8 @@ impl Grid {
 
 #[derive(Default)]
 struct SolveState {
-    board: Grid,
     minimum: Option<Grid>,
     minimum_area: usize,
-    wordstack: Vec<WordStackFrame>,
     hashed_boards: HashSet<u64>,
 }
 
@@ -397,49 +390,33 @@ fn place_word_at(word: &str, c0: usize, r0: usize, dir: Direction) -> Vec<Letter
     }
     result
 }
-
-macro_rules! pop_stack {
-    ($state:ident) => {
-        let mut state = $state.borrow_mut();
-        if let Some(stackframe) = state.wordstack.pop() {
-            for placed_letter in stackframe.placed_letters {
-                state
-                    .board
-                    .insert(placed_letter.row, placed_letter.col, ' ');
-            }
-        }
-    };
-}
-fn find_minimum_area_configuration() {
+fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
     STATE.with(|s| {
-        let mystackframe = (*s.borrow_mut()).wordstack.last().unwrap().clone(); //TODO why do I need clone here?
         let mut tiles = mystackframe.remaining_tiles.clone();
-
+        let mut board = mystackframe.board;
         if mystackframe.recursion_depth > 0 {
             //actually place tiles we are assigned
             for ltr in &mystackframe.placed_letters {
-                (*s.borrow_mut()).board.place_letter(&ltr);
+                board.place_letter(&ltr);
                 let index = tiles.iter().position(|x| *x == ltr.letter).unwrap();
                 tiles.remove(index);
             }
         }
 
-        let board = &(*s.borrow()).board.clone();
+        //will not modify board from now on
+        let board = board;
 
         //early exit checks
         let boardhash = board.hash();
         if (*s.borrow()).hashed_boards.contains(&boardhash) {
-            pop_stack!(s);
             return;
         }
         (*s.borrow_mut()).hashed_boards.insert(boardhash);
         let area = board.bounding_box_area();
         if area > (*s.borrow()).minimum_area {
-            pop_stack!(s);
             return;
         }
         if *PREEMPTIVE_CHECKING && !board.valid_bananagrams(&mystackframe.available_words) {
-            pop_stack!(s);
             return;
         }
 
@@ -453,7 +430,6 @@ fn find_minimum_area_configuration() {
                 println!("New Smallest Solution Found!");
                 board.print();
             }
-            pop_stack!(s);
             return;
         }
 
@@ -461,17 +437,16 @@ fn find_minimum_area_configuration() {
         if mystackframe.recursion_depth == 0 {
             for word in &mystackframe.available_words {
                 println!("{}", &word);
-                let midpoint = (*s.borrow()).board.midpoint();
+                let midpoint = board.midpoint();
                 let placement = place_word_at(&word, midpoint.0, midpoint.1, Direction::Horizontal);
-                (*s.borrow_mut()).wordstack.push(WordStackFrame {
+                find_minimum_area_configuration(WordStackFrame {
+                    board: board.clone(),
                     remaining_tiles: mystackframe.remaining_tiles.clone(),
                     available_words: mystackframe.available_words.clone(),
                     placed_letters: placement,
                     recursion_depth: 1,
                 });
-                find_minimum_area_configuration();
             }
-            pop_stack!(s);
             return;
         }
 
@@ -492,15 +467,14 @@ fn find_minimum_area_configuration() {
                     if !can_be_made_with(&tilesplaced, &tiles) {
                         continue;
                     }
-                    //generate new stack frame
-                    (*s.borrow_mut()).wordstack.push(WordStackFrame {
+                    //recurse
+                    find_minimum_area_configuration(WordStackFrame {
+                        board: board.clone(),
                         remaining_tiles: tiles.clone(),
                         available_words: mystackframe.available_words.clone(),
                         placed_letters: placement,
                         recursion_depth: &mystackframe.recursion_depth + 1,
                     });
-                    //recurse
-                    find_minimum_area_configuration();
                 }
             }
         }
@@ -520,19 +494,17 @@ fn find_minimum_area_configuration() {
                     if !can_be_made_with(&tilesplaced, &tiles) {
                         continue;
                     }
-                    //generate new stack frame
-                    (*s.borrow_mut()).wordstack.push(WordStackFrame {
+                    //recurse
+                    find_minimum_area_configuration(WordStackFrame {
+                        board: board.clone(),
                         remaining_tiles: tiles.clone(),
                         available_words: mystackframe.available_words.clone(),
                         placed_letters: placement,
                         recursion_depth: &mystackframe.recursion_depth + 1,
                     });
-                    //recurse
-                    find_minimum_area_configuration();
                 }
             }
         }
-        pop_stack!(s);
     });
 }
 
