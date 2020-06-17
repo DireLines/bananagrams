@@ -199,6 +199,17 @@ impl Grid {
         Regex::new(&regex_string).unwrap()
     }
 
+    fn fits_in_row(
+        &self,
+        word: &str,
+        position: usize,
+        dir: Direction,
+        available_chars: &[char],
+    ) -> bool {
+        let words = self.words_at(position, dir);
+        fits_in_row(word, available_chars, &words)
+    }
+
     fn bounding_box_area(&self) -> usize {
         self.bounding_box().area()
     }
@@ -309,6 +320,7 @@ struct SolveState {
     hashed_boards: HashSet<u64>,
 }
 
+//can this word be assembled from these tiles?
 fn can_be_made_with(word: &str, tiles: &[char]) -> bool {
     let mut tiles = tiles.to_owned();
     for c in word.chars() {
@@ -318,6 +330,37 @@ fn can_be_made_with(word: &str, tiles: &[char]) -> bool {
         };
     }
     true
+}
+
+//can this word be assembled from these tiles
+//given that it also needs to be placed somewhere in row
+fn fits_in_row(word: &str, tiles: &[char], row: &str) -> bool {
+    let mut all_tiles = tiles.to_owned();
+    all_tiles.extend(row.chars().filter(|c| *c != ' ').collect::<Vec<char>>());
+    if !can_be_made_with(word, &all_tiles) {
+        return false;
+    }
+    //trim and pad with spaces
+    let row = format!("{:pad$}{}{:pad$}", "", row.trim(), "", pad = word.len() - 1);
+    'outer: for start_index in 0..row.len() - word.len() + 1 {
+        let mut row_with_word_inserted = row.clone();
+        row_with_word_inserted.replace_range(start_index..start_index + word.len(), word);
+        for (i, c) in row.chars().enumerate() {
+            if (c != ' ' && c != row_with_word_inserted.chars().nth(i).unwrap()) {
+                continue 'outer;
+            }
+        }
+        //at this point we know no row characters have been replaced
+        if (row_with_word_inserted
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+            .contains(&word.to_string()))
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn place_word_at(word: &str, c0: usize, r0: usize, dir: Direction) -> Vec<LetterPlacement> {
@@ -481,15 +524,27 @@ fn bounding_box() {
 }
 
 #[test]
-fn regex() {
-    let regex_string = "^a[ab]*a$";
-    let r = Regex::new(&regex_string).unwrap();
-    assert!(r.is_match("aa"));
-    assert!(r.is_match("aba"));
-    assert!(r.is_match("abbabababababbaa"));
-    assert!(!r.is_match("a"));
-    assert!(!r.is_match("abaca"));
-    assert!(!r.is_match("cabac"));
+fn fits_in_row_1() {
+    let tiles = "ab".chars().collect::<Vec<char>>();
+    let row = "   a c ";
+    assert!(fits_in_row("abc", &tiles, row));
+    assert!(!fits_in_row("abcb", &tiles, row));
+    assert!(fits_in_row("cab", &tiles, row));
+    assert!(!fits_in_row("abac", &tiles, row));
+}
+
+#[test]
+fn fits_in_row_2() {
+    let tiles = "ab".chars().collect::<Vec<char>>();
+    let row = "a a";
+    let good_words = vec!["aa", "aba", "a"];
+    let bad_words = vec!["abaca", "cabac", "abbabababababbaa"];
+    for word in good_words {
+        assert!(fits_in_row(word, &tiles, row));
+    }
+    for word in bad_words {
+        assert!(!fits_in_row(word, &tiles, row));
+    }
 }
 
 #[test]
