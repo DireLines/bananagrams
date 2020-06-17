@@ -450,19 +450,6 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
                 .filter(|w| regex.is_match(w))
                 .map(|w| w.to_string())
                 .collect();
-            board.print();
-            for word in &newwords {
-                println!(
-                    "{} {}",
-                    word,
-                    board.fits_in_row(
-                        words,
-                        row,
-                        Direction::Horizontal,
-                        &mystackframe.remaining_tiles
-                    )
-                );
-            }
             for word in &newwords {
                 let word_placements = board.word_placements_for(&word, row, Direction::Horizontal);
                 for placement in word_placements {
@@ -490,19 +477,6 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
                 .filter(|w| regex.is_match(w))
                 .map(|w| w.to_string())
                 .collect();
-            board.print();
-            for word in &newwords {
-                println!(
-                    "{} {}",
-                    word,
-                    board.fits_in_row(
-                        words,
-                        col,
-                        Direction::Vertical,
-                        &mystackframe.remaining_tiles
-                    )
-                );
-            }
             for word in &newwords {
                 let word_placements = board.word_placements_for(&word, col, Direction::Vertical);
                 for placement in word_placements {
