@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use ndarray::s;
 use ndarray::Array2;
 use rand::prelude::*;
-use regex::Regex;
+use rayon::prelude::*;
 use std::{
     cell::RefCell,
     cmp::{max, min},
@@ -187,18 +187,6 @@ impl Grid {
         }
     }
 
-    fn regex_for(&self, position: usize, dir: Direction, available_chars: &[char]) -> Regex {
-        let words = self.words_at(position, dir);
-        let chars_regex = format!("[{}]*", String::from_iter(available_chars));
-        let regex_string = format!(
-            "^{}{}{}$",
-            &chars_regex,
-            &words.trim().replace(' ', &chars_regex),
-            &chars_regex
-        );
-        Regex::new(&regex_string).unwrap()
-    }
-
     fn fits_in_row(
         &self,
         word: &str,
@@ -357,7 +345,14 @@ fn fits_in_row(word: &str, tiles: &[char], row: &str) -> bool {
             .collect::<Vec<String>>()
             .contains(&word.to_string()))
         {
-            return true;
+            if (!row
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>()
+                .contains(&word.to_string()))
+            {
+                return true;
+            }
         }
     }
     false
@@ -443,11 +438,10 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
 
         let bounds = board.bounding_box();
         for row in bounds.min_row..bounds.max_row + 1 {
-            let regex = board.regex_for(row, Direction::Horizontal, &mystackframe.remaining_tiles);
             let newwords: Vec<String> = mystackframe
                 .available_words
-                .iter()
-                .filter(|w| regex.is_match(w))
+                .par_iter()
+                .filter(|w| board.fits_in_row(w, row, Direction::Horizontal, &tiles))
                 .map(|w| w.to_string())
                 .collect();
             for word in &newwords {
@@ -470,11 +464,10 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
             }
         }
         for col in bounds.min_col..bounds.max_col + 1 {
-            let regex = board.regex_for(col, Direction::Vertical, &mystackframe.remaining_tiles);
             let newwords: Vec<String> = mystackframe
                 .available_words
-                .iter()
-                .filter(|w| regex.is_match(w))
+                .par_iter()
+                .filter(|w| board.fits_in_row(w, col, Direction::Vertical, &tiles))
                 .map(|w| w.to_string())
                 .collect();
             for word in &newwords {
