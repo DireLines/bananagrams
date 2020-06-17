@@ -2,7 +2,6 @@ use lazy_static::lazy_static;
 use ndarray::s;
 use ndarray::Array2;
 use rand::prelude::*;
-use rayon::prelude::*;
 use std::{
     cell::RefCell,
     cmp::{max, min},
@@ -433,7 +432,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
         for row in bounds.min_row..bounds.max_row + 1 {
             let newwords: Vec<String> = mystackframe
                 .available_words
-                .par_iter()
+                .iter()
                 .filter(|w| board.fits_in_row(w, row, Direction::Horizontal, &tiles))
                 .map(|w| w.to_string())
                 .collect();
@@ -459,7 +458,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
         for col in bounds.min_col..bounds.max_col + 1 {
             let newwords: Vec<String> = mystackframe
                 .available_words
-                .par_iter()
+                .iter()
                 .filter(|w| board.fits_in_row(w, col, Direction::Vertical, &tiles))
                 .map(|w| w.to_string())
                 .collect();
