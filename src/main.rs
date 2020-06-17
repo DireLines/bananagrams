@@ -345,14 +345,7 @@ fn fits_in_row(word: &str, tiles: &[char], row: &str) -> bool {
             .collect::<Vec<String>>()
             .contains(&word.to_string()))
         {
-            if (!row
-                .split_whitespace()
-                .map(|s| s.to_string())
-                .collect::<Vec<String>>()
-                .contains(&word.to_string()))
-            {
-                return true;
-            }
+            return true;
         }
     }
     false
