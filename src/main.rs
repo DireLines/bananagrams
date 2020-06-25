@@ -13,6 +13,11 @@ use std::{
 mod args;
 use args::*;
 
+extern crate jemallocator;
+
+#[global_allocator]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 //mutable static
 thread_local! {
     static STATE: RefCell<SolveState> = RefCell::new(SolveState::default());
