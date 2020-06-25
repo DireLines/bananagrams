@@ -1,0 +1,419 @@
+<?xml version="1.0" standalone="no"?><!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd"><svg version="1.1" width="1200" height="422" onload="init(evt)" viewBox="0 0 1200 422" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><!--Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples.--><!--NOTES: --><defs><linearGradient id="background" y1="0" y2="1" x1="0" x2="0"><stop stop-color="#eeeeee" offset="5%"/><stop stop-color="#eeeeb0" offset="95%"/></linearGradient></defs><style type="text/css">
+text { font-family:"Verdana"; font-size:12px; fill:rgb(0,0,0); }
+#title { text-anchor:middle; font-size:17px; }
+#search { opacity:0.1; cursor:pointer; }
+#search:hover, #search.show { opacity:1; }
+#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+#unzoom { cursor:pointer; }
+#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+.hide { display:none; }
+.parent { opacity:0.5; }
+</style><script type="text/ecmascript"><![CDATA[var nametype = 'Function:';
+var fontsize = 12;
+var fontwidth = 0.59;
+var xpad = 10;
+var inverted = false;
+var searchcolor = 'rgb(230,0,230)';
+var fluiddrawing = true;
+var truncate_text_right = false;]]><![CDATA["use strict";
+var details, searchbtn, unzoombtn, matchedtxt, svg, searching, frames;
+function init(evt) {
+    details = document.getElementById("details").firstChild;
+    searchbtn = document.getElementById("search");
+    unzoombtn = document.getElementById("unzoom");
+    matchedtxt = document.getElementById("matched");
+    svg = document.getElementsByTagName("svg")[0];
+    frames = document.getElementById("frames");
+    searching = 0;
+
+    // Use GET parameters to restore a flamegraph's state.
+    var restore_state = function() {
+        var params = get_params();
+        if (params.x && params.y)
+            zoom(find_group(document.querySelector('[x="' + params.x + '"][y="' + params.y + '"]')));
+        if (params.s)
+            search(params.s);
+    };
+
+    if (fluiddrawing) {
+        // Make width dynamic so the SVG fits its parent's width.
+        svg.removeAttribute("width");
+        // Edge requires us to have a viewBox that gets updated with size changes.
+        var isEdge = /Edge\/\d./i.test(navigator.userAgent);
+        if (!isEdge) {
+          svg.removeAttribute("viewBox");
+        }
+        var update_for_width_change = function() {
+            if (isEdge) {
+                svg.attributes.viewBox.value = "0 0 " + svg.width.baseVal.value + " " + svg.height.baseVal.value;
+            }
+
+            // Keep consistent padding on left and right of frames container.
+            frames.attributes.width.value = svg.width.baseVal.value - xpad * 2;
+
+            // Text truncation needs to be adjusted for the current width.
+            var el = frames.children;
+            for(var i = 0; i < el.length; i++) {
+                update_text(el[i]);
+            }
+
+            // Keep search elements at a fixed distance from right edge.
+            var svgWidth = svg.width.baseVal.value;
+            searchbtn.attributes.x.value = svgWidth - xpad - 100;
+            matchedtxt.attributes.x.value = svgWidth - xpad - 100;
+        };
+        window.addEventListener('resize', function() {
+            update_for_width_change();
+        });
+        // This needs to be done asynchronously for Safari to work.
+        setTimeout(function() {
+            unzoom();
+            update_for_width_change();
+            restore_state();
+        }, 0);
+    } else {
+        restore_state();
+    }
+}
+// event listeners
+window.addEventListener("click", function(e) {
+    var target = find_group(e.target);
+    if (target) {
+        if (target.nodeName == "a") {
+            if (e.ctrlKey === false) return;
+            e.preventDefault();
+        }
+        if (target.classList.contains("parent")) unzoom();
+        zoom(target);
+
+        // set parameters for zoom state
+        var el = target.querySelector("rect");
+        if (el && el.attributes && el.attributes.y && el.attributes._orig_x) {
+            var params = get_params()
+            params.x = el.attributes._orig_x.value;
+            params.y = el.attributes.y.value;
+            history.replaceState(null, null, parse_params(params));
+        }
+    }
+    else if (e.target.id == "unzoom") {
+        unzoom();
+
+        // remove zoom state
+        var params = get_params();
+        if (params.x) delete params.x;
+        if (params.y) delete params.y;
+        history.replaceState(null, null, parse_params(params));
+    }
+    else if (e.target.id == "search") search_prompt();
+}, false)
+// mouse-over for info
+// show
+window.addEventListener("mouseover", function(e) {
+    var target = find_group(e.target);
+    if (target) details.nodeValue = nametype + " " + g_to_text(target);
+}, false)
+// clear
+window.addEventListener("mouseout", function(e) {
+    var target = find_group(e.target);
+    if (target) details.nodeValue = ' ';
+}, false)
+// ctrl-F for search
+window.addEventListener("keydown",function (e) {
+    if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+        e.preventDefault();
+        search_prompt();
+    }
+}, false)
+// functions
+function get_params() {
+    var params = {};
+    var paramsarr = window.location.search.substr(1).split('&');
+    for (var i = 0; i < paramsarr.length; ++i) {
+        var tmp = paramsarr[i].split("=");
+        if (!tmp[0] || !tmp[1]) continue;
+        params[tmp[0]]  = decodeURIComponent(tmp[1]);
+    }
+    return params;
+}
+function parse_params(params) {
+    var uri = "?";
+    for (var key in params) {
+        uri += key + '=' + encodeURIComponent(params[key]) + '&';
+    }
+    if (uri.slice(-1) == "&")
+        uri = uri.substring(0, uri.length - 1);
+    if (uri == '?')
+        uri = window.location.href.split('?')[0];
+    return uri;
+}
+function find_child(node, selector) {
+    var children = node.querySelectorAll(selector);
+    if (children.length) return children[0];
+    return;
+}
+function find_group(node) {
+    var parent = node.parentElement;
+    if (!parent) return;
+    if (parent.id == "frames") return node;
+    return find_group(parent);
+}
+function orig_save(e, attr, val) {
+    if (e.attributes["_orig_" + attr] != undefined) return;
+    if (e.attributes[attr] == undefined) return;
+    if (val == undefined) val = e.attributes[attr].value;
+    e.setAttribute("_orig_" + attr, val);
+}
+function orig_load(e, attr) {
+    if (e.attributes["_orig_"+attr] == undefined) return;
+    e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+    e.removeAttribute("_orig_" + attr);
+}
+function g_to_text(e) {
+    var text = find_child(e, "title").firstChild.nodeValue;
+    return (text)
+}
+function g_to_func(e) {
+    var func = g_to_text(e);
+    // if there's any manipulation we want to do to the function
+    // name before it's searched, do it here before returning.
+    return (func);
+}
+function update_text(e) {
+    var r = find_child(e, "rect");
+    var t = find_child(e, "text");
+    var w = parseFloat(r.attributes.width.value) * frames.attributes.width.value / 100 - 3;
+    var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+    t.attributes.x.value = format_percent((parseFloat(r.attributes.x.value) + (100 * 3 / frames.attributes.width.value)));
+    // Smaller than this size won't fit anything
+    if (w < 2 * fontsize * fontwidth) {
+        t.textContent = "";
+        return;
+    }
+    t.textContent = txt;
+    // Fit in full text width
+    if (/^ *\$/.test(txt) || t.getComputedTextLength() < w)
+        return;
+    if (truncate_text_right) {
+        // Truncate the right side of the text.
+        for (var x = txt.length - 2; x > 0; x--) {
+            if (t.getSubStringLength(0, x + 2) <= w) {
+                t.textContent = txt.substring(0, x) + "..";
+                return;
+            }
+        }
+    } else {
+        // Truncate the left side of the text.
+        for (var x = 2; x < txt.length; x++) {
+            if (t.getSubStringLength(x - 2, txt.length) <= w) {
+                t.textContent = ".." + txt.substring(x, txt.length);
+                return;
+            }
+        }
+    }
+    t.textContent = "";
+}
+// zoom
+function zoom_reset(e) {
+    if (e.attributes != undefined) {
+        orig_load(e, "x");
+        orig_load(e, "width");
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_reset(c[i]);
+    }
+}
+function zoom_child(e, x, ratio) {
+    if (e.attributes != undefined) {
+        if (e.attributes.x != undefined) {
+            orig_save(e, "x");
+            e.attributes.x.value = format_percent((parseFloat(e.attributes.x.value) - x) * ratio);
+            if (e.tagName == "text") {
+                e.attributes.x.value = format_percent(parseFloat(find_child(e.parentNode, "rect[x]").attributes.x.value) + (100 * 3 / frames.attributes.width.value));
+            }
+        }
+        if (e.attributes.width != undefined) {
+            orig_save(e, "width");
+            e.attributes.width.value = format_percent(parseFloat(e.attributes.width.value) * ratio);
+        }
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_child(c[i], x, ratio);
+    }
+}
+function zoom_parent(e) {
+    if (e.attributes) {
+        if (e.attributes.x != undefined) {
+            orig_save(e, "x");
+            e.attributes.x.value = "0.0%";
+        }
+        if (e.attributes.width != undefined) {
+            orig_save(e, "width");
+            e.attributes.width.value = "100.0%";
+        }
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_parent(c[i]);
+    }
+}
+function zoom(node) {
+    var attr = find_child(node, "rect").attributes;
+    var width = parseFloat(attr.width.value);
+    var xmin = parseFloat(attr.x.value);
+    var xmax = xmin + width;
+    var ymin = parseFloat(attr.y.value);
+    var ratio = 100 / width;
+    // XXX: Workaround for JavaScript float issues (fix me)
+    var fudge = 0.001;
+    unzoombtn.classList.remove("hide");
+    var el = frames.children;
+    for (var i = 0; i < el.length; i++) {
+        var e = el[i];
+        var a = find_child(e, "rect").attributes;
+        var ex = parseFloat(a.x.value);
+        var ew = parseFloat(a.width.value);
+        // Is it an ancestor
+        if (!inverted) {
+            var upstack = parseFloat(a.y.value) > ymin;
+        } else {
+            var upstack = parseFloat(a.y.value) < ymin;
+        }
+        if (upstack) {
+            // Direct ancestor
+            if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+                e.classList.add("parent");
+                zoom_parent(e);
+                update_text(e);
+            }
+            // not in current path
+            else
+                e.classList.add("hide");
+        }
+        // Children maybe
+        else {
+            // no common path
+            if (ex < xmin || ex + fudge >= xmax) {
+                e.classList.add("hide");
+            }
+            else {
+                zoom_child(e, xmin, ratio);
+                update_text(e);
+            }
+        }
+    }
+}
+function unzoom() {
+    unzoombtn.classList.add("hide");
+    var el = frames.children;
+    for(var i = 0; i < el.length; i++) {
+        el[i].classList.remove("parent");
+        el[i].classList.remove("hide");
+        zoom_reset(el[i]);
+        update_text(el[i]);
+    }
+}
+// search
+function reset_search() {
+    var el = document.querySelectorAll("#frames rect");
+    for (var i = 0; i < el.length; i++) {
+        orig_load(el[i], "fill")
+    }
+    var params = get_params();
+    delete params.s;
+    history.replaceState(null, null, parse_params(params));
+}
+function search_prompt() {
+    if (!searching) {
+        var term = prompt("Enter a search term (regexp " +
+            "allowed, eg: ^ext4_)", "");
+        if (term != null) {
+            search(term)
+        }
+    } else {
+        reset_search();
+        searching = 0;
+        searchbtn.classList.remove("show");
+        searchbtn.firstChild.nodeValue = "Search"
+        matchedtxt.classList.add("hide");
+        matchedtxt.firstChild.nodeValue = ""
+    }
+}
+function search(term) {
+    var re = new RegExp(term);
+    var el = frames.children;
+    var matches = new Object();
+    var maxwidth = 0;
+    for (var i = 0; i < el.length; i++) {
+        var e = el[i];
+        var func = g_to_func(e);
+        var rect = find_child(e, "rect");
+        if (func == null || rect == null)
+            continue;
+        // Save max width. Only works as we have a root frame
+        var w = parseFloat(rect.attributes.width.value);
+        if (w > maxwidth)
+            maxwidth = w;
+        if (func.match(re)) {
+            // highlight
+            var x = parseFloat(rect.attributes.x.value);
+            orig_save(rect, "fill");
+            rect.attributes.fill.value = searchcolor;
+            // remember matches
+            if (matches[x] == undefined) {
+                matches[x] = w;
+            } else {
+                if (w > matches[x]) {
+                    // overwrite with parent
+                    matches[x] = w;
+                }
+            }
+            searching = 1;
+        }
+    }
+    if (!searching)
+        return;
+    var params = get_params();
+    params.s = term;
+    history.replaceState(null, null, parse_params(params));
+
+    searchbtn.classList.add("show");
+    searchbtn.firstChild.nodeValue = "Reset Search";
+    // calculate percent matched, excluding vertical overlap
+    var count = 0;
+    var lastx = -1;
+    var lastw = 0;
+    var keys = Array();
+    for (k in matches) {
+        if (matches.hasOwnProperty(k))
+            keys.push(k);
+    }
+    // sort the matched frames by their x location
+    // ascending, then width descending
+    keys.sort(function(a, b){
+        return a - b;
+    });
+    // Step through frames saving only the biggest bottom-up frames
+    // thanks to the sort order. This relies on the tree property
+    // where children are always smaller than their parents.
+    var fudge = 0.0001;    // JavaScript floating point
+    for (var k in keys) {
+        var x = parseFloat(keys[k]);
+        var w = matches[keys[k]];
+        if (x >= lastx + lastw - fudge) {
+            count += w;
+            lastx = x;
+            lastw = w;
+        }
+    }
+    // display matched percent
+    matchedtxt.classList.remove("hide");
+    var pct = 100 * count / maxwidth;
+    if (pct != 100) pct = pct.toFixed(1);
+    matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+}
+function format_percent(n) {
+    return n.toFixed(4) + "%";
+}
+]]></script><rect x="0" y="0" width="100%" height="422" fill="url(#background)"/><text id="title" x="50.0000%" y="24.00">Flame Graph</text><text id="details" x="10" y="405.00"> </text><text id="unzoom" class="hide" x="10" y="24.00">Reset Zoom</text><text id="search" x="1090" y="24.00">Search</text><text id="matched" x="1090" y="405.00"> </text><svg id="frames" x="10" width="1180"><g><title>bananagrams`&lt;ndarray::iterators::Iter&lt;A,D&gt; as core::iter::traits::iterator::Iterator&gt;::fold (40 samples, 0.15%)</title><rect x="0.4634%" y="165" width="0.1545%" height="15" fill="rgb(227,0,7)"/><text x="0.7134%" y="175.50"></text></g><g><title>bananagrams`bananagrams::can_be_made_with (27 samples, 0.10%)</title><rect x="0.8496%" y="165" width="0.1043%" height="15" fill="rgb(217,0,24)"/><text x="1.0996%" y="175.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;T,I&gt;&gt;::from_iter (222 samples, 0.86%)</title><rect x="0.2433%" y="197" width="0.8573%" height="15" fill="rgb(221,193,54)"/><text x="0.4933%" y="207.50"></text></g><g><title>bananagrams`bananagrams::Grid::fits_in_row (219 samples, 0.85%)</title><rect x="0.2549%" y="181" width="0.8457%" height="15" fill="rgb(248,212,6)"/><text x="0.5049%" y="191.50"></text></g><g><title>bananagrams`mi_malloc (34 samples, 0.13%)</title><rect x="1.1623%" y="165" width="0.1313%" height="15" fill="rgb(208,68,35)"/><text x="1.4123%" y="175.50"></text></g><g><title>bananagrams`&lt;alloc::string::String as core::clone::Clone&gt;::clone (72 samples, 0.28%)</title><rect x="1.1121%" y="181" width="0.2780%" height="15" fill="rgb(232,128,0)"/><text x="1.3621%" y="191.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as core::clone::Clone&gt;::clone (88 samples, 0.34%)</title><rect x="1.1006%" y="197" width="0.3398%" height="15" fill="rgb(207,160,47)"/><text x="1.3506%" y="207.50"></text></g><g><title>bananagrams`mi_malloc (28 samples, 0.11%)</title><rect x="2.6800%" y="133" width="0.1081%" height="15" fill="rgb(228,23,34)"/><text x="2.9300%" y="143.50"></text></g><g><title>bananagrams`&lt;alloc::string::String as core::clone::Clone&gt;::clone (40 samples, 0.15%)</title><rect x="2.6529%" y="149" width="0.1545%" height="15" fill="rgb(218,30,26)"/><text x="2.9029%" y="159.50"></text></g><g><title>bananagrams`alloc::raw_vec::RawVec&lt;T,A&gt;::reserve (36 samples, 0.14%)</title><rect x="3.1627%" y="133" width="0.1390%" height="15" fill="rgb(220,122,19)"/><text x="3.4127%" y="143.50"></text></g><g><title>bananagrams`mi_malloc (45 samples, 0.17%)</title><rect x="3.3017%" y="133" width="0.1738%" height="15" fill="rgb(250,228,42)"/><text x="3.5517%" y="143.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;T,I&gt;&gt;::from_iter (181 samples, 0.70%)</title><rect x="2.8074%" y="149" width="0.6989%" height="15" fill="rgb(240,193,28)"/><text x="3.0574%" y="159.50"></text></g><g><title>bananagrams`&lt;ndarray::iterators::Iter&lt;A,D&gt; as core::iter::traits::iterator::Iterator&gt;::fold (368 samples, 1.42%)</title><rect x="3.5063%" y="149" width="1.4211%" height="15" fill="rgb(216,20,37)"/><text x="3.7563%" y="159.50"></text></g><g><title>bananagrams`core::iter::adapters::map_fold::_{{closure}} (173 samples, 0.67%)</title><rect x="4.2593%" y="133" width="0.6681%" height="15" fill="rgb(206,188,39)"/><text x="4.5093%" y="143.50"></text></g><g><title>bananagrams`alloc::string::String::push (29 samples, 0.11%)</title><rect x="5.2325%" y="85" width="0.1120%" height="15" fill="rgb(217,207,13)"/><text x="5.4825%" y="95.50"></text></g><g><title>bananagrams`&lt;&amp;mut W as core::fmt::Write&gt;::write_char (34 samples, 0.13%)</title><rect x="5.2170%" y="101" width="0.1313%" height="15" fill="rgb(231,73,38)"/><text x="5.4670%" y="111.50"></text></g><g><title>bananagrams`alloc::fmt::format (90 samples, 0.35%)</title><rect x="5.0162%" y="149" width="0.3475%" height="15" fill="rgb(225,20,46)"/><text x="5.2662%" y="159.50"></text></g><g><title>bananagrams`core::fmt::write (87 samples, 0.34%)</title><rect x="5.0278%" y="133" width="0.3360%" height="15" fill="rgb(210,31,41)"/><text x="5.2778%" y="143.50"></text></g><g><title>bananagrams`core::fmt::Formatter::pad (47 samples, 0.18%)</title><rect x="5.1823%" y="117" width="0.1815%" height="15" fill="rgb(221,200,47)"/><text x="5.4323%" y="127.50"></text></g><g><title>bananagrams`_mi_heap_realloc_zero (59 samples, 0.23%)</title><rect x="5.4912%" y="133" width="0.2278%" height="15" fill="rgb(226,26,5)"/><text x="5.7412%" y="143.50"></text></g><g><title>bananagrams`mi_malloc (31 samples, 0.12%)</title><rect x="5.7229%" y="133" width="0.1197%" height="15" fill="rgb(249,33,26)"/><text x="5.9729%" y="143.50"></text></g><g><title>bananagrams`alloc::raw_vec::RawVec&lt;T,A&gt;::reserve (144 samples, 0.56%)</title><rect x="5.3638%" y="149" width="0.5561%" height="15" fill="rgb(235,183,28)"/><text x="5.6138%" y="159.50"></text></g><g><title>bananagrams`mi_malloc (39 samples, 0.15%)</title><rect x="6.0395%" y="133" width="0.1506%" height="15" fill="rgb(221,5,38)"/><text x="6.2895%" y="143.50"></text></g><g><title>bananagrams`alloc::slice::_&lt;impl alloc::borrow::ToOwned for [T]&gt;::to_owned (83 samples, 0.32%)</title><rect x="5.9198%" y="149" width="0.3205%" height="15" fill="rgb(247,18,42)"/><text x="6.1698%" y="159.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Splice&lt;I&gt; as core::ops::drop::Drop&gt;::drop (29 samples, 0.11%)</title><rect x="6.3099%" y="133" width="0.1120%" height="15" fill="rgb(241,131,45)"/><text x="6.5599%" y="143.50"></text></g><g><title>bananagrams`alloc::string::String::replace_range (50 samples, 0.19%)</title><rect x="6.2403%" y="149" width="0.1931%" height="15" fill="rgb(249,31,29)"/><text x="6.4903%" y="159.50"></text></g><g><title>bananagrams`mi_malloc (29 samples, 0.11%)</title><rect x="6.9470%" y="117" width="0.1120%" height="15" fill="rgb(225,111,53)"/><text x="7.1970%" y="127.50"></text></g><g><title>bananagrams`alloc::slice::_&lt;impl alloc::borrow::ToOwned for [T]&gt;::to_owned (77 samples, 0.30%)</title><rect x="6.8080%" y="133" width="0.2973%" height="15" fill="rgb(238,160,17)"/><text x="7.0580%" y="143.50"></text></g><g><title>bananagrams`bananagrams::can_be_made_with (212 samples, 0.82%)</title><rect x="6.4334%" y="149" width="0.8187%" height="15" fill="rgb(214,148,48)"/><text x="6.6834%" y="159.50"></text></g><g><title>bananagrams`mi_free (56 samples, 0.22%)</title><rect x="7.4104%" y="149" width="0.2162%" height="15" fill="rgb(232,36,49)"/><text x="7.6604%" y="159.50"></text></g><g><title>bananagrams`ndarray::impl_methods::_&lt;impl ndarray::ArrayBase&lt;S,D&gt;&gt;::slice (65 samples, 0.25%)</title><rect x="7.6884%" y="149" width="0.2510%" height="15" fill="rgb(209,103,24)"/><text x="7.9384%" y="159.50"></text></g><g><title>bananagrams`ndarray::dimension::do_slice (27 samples, 0.10%)</title><rect x="7.8352%" y="133" width="0.1043%" height="15" fill="rgb(229,88,8)"/><text x="8.0852%" y="143.50"></text></g><g><title>bananagrams`ndarray::iterators::Iter&lt;A,D&gt;::new (58 samples, 0.22%)</title><rect x="7.9395%" y="149" width="0.2240%" height="15" fill="rgb(213,181,19)"/><text x="8.1895%" y="159.50"></text></g><g><title>bananagrams`bananagrams::Grid::fits_in_row (1,662 samples, 6.42%)</title><rect x="1.8034%" y="165" width="6.4180%" height="15" fill="rgb(254,191,54)"/><text x="2.0534%" y="175.50">bananagr..</text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;T,I&gt;&gt;::from_iter (1,715 samples, 6.62%)</title><rect x="1.6373%" y="181" width="6.6226%" height="15" fill="rgb(241,83,37)"/><text x="1.8873%" y="191.50">bananagra..</text></g><g><title>bananagrams`mi_malloc (81 samples, 0.31%)</title><rect x="8.5110%" y="149" width="0.3128%" height="15" fill="rgb(233,36,39)"/><text x="8.7610%" y="159.50"></text></g><g><title>bananagrams`&lt;alloc::string::String as core::clone::Clone&gt;::clone (183 samples, 0.71%)</title><rect x="8.3449%" y="165" width="0.7067%" height="15" fill="rgb(226,3,54)"/><text x="8.5949%" y="175.50"></text></g><g><title>libsystem_platform.dylib`_platform_memmove$VARIANT$Haswell (53 samples, 0.20%)</title><rect x="8.8469%" y="149" width="0.2047%" height="15" fill="rgb(245,192,40)"/><text x="9.0969%" y="159.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as core::clone::Clone&gt;::clone (235 samples, 0.91%)</title><rect x="8.2600%" y="181" width="0.9075%" height="15" fill="rgb(238,167,29)"/><text x="8.5100%" y="191.50"></text></g><g><title>bananagrams`bananagrams::Grid::word_placements_for (52 samples, 0.20%)</title><rect x="9.3528%" y="181" width="0.2008%" height="15" fill="rgb(232,182,51)"/><text x="9.6028%" y="191.50"></text></g><g><title>bananagrams`__rg_dealloc (30 samples, 0.12%)</title><rect x="10.0633%" y="149" width="0.1158%" height="15" fill="rgb(231,60,39)"/><text x="10.3133%" y="159.50"></text></g><g><title>bananagrams`mi_malloc (55 samples, 0.21%)</title><rect x="12.9209%" y="117" width="0.2124%" height="15" fill="rgb(208,69,12)"/><text x="13.1709%" y="127.50"></text></g><g><title>bananagrams`&lt;alloc::string::String as core::clone::Clone&gt;::clone (100 samples, 0.39%)</title><rect x="12.8205%" y="133" width="0.3862%" height="15" fill="rgb(235,93,37)"/><text x="13.0705%" y="143.50"></text></g><g><title>bananagrams`mi_usable_size (30 samples, 0.12%)</title><rect x="14.9676%" y="85" width="0.1158%" height="15" fill="rgb(213,116,39)"/><text x="15.2176%" y="95.50"></text></g><g><title>bananagrams`_mi_heap_realloc_zero (103 samples, 0.40%)</title><rect x="14.7050%" y="101" width="0.3977%" height="15" fill="rgb(222,207,29)"/><text x="14.9550%" y="111.50"></text></g><g><title>bananagrams`alloc::raw_vec::RawVec&lt;T,A&gt;::reserve (162 samples, 0.63%)</title><rect x="14.5698%" y="117" width="0.6256%" height="15" fill="rgb(206,96,30)"/><text x="14.8198%" y="127.50"></text></g><g><title>bananagrams`mi_malloc (127 samples, 0.49%)</title><rect x="15.1954%" y="117" width="0.4904%" height="15" fill="rgb(218,138,4)"/><text x="15.4454%" y="127.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;T,I&gt;&gt;::from_iter (649 samples, 2.51%)</title><rect x="13.2260%" y="133" width="2.5062%" height="15" fill="rgb(250,191,14)"/><text x="13.4760%" y="143.50">ba..</text></g><g><title>bananagrams`&lt;ndarray::iterators::Iter&lt;A,D&gt; as core::iter::traits::iterator::Iterator&gt;::fold (1,263 samples, 4.88%)</title><rect x="15.7322%" y="133" width="4.8772%" height="15" fill="rgb(239,60,40)"/><text x="15.9822%" y="143.50">banana..</text></g><g><title>bananagrams`core::iter::adapters::map_fold::_{{closure}} (652 samples, 2.52%)</title><rect x="18.0916%" y="117" width="2.5178%" height="15" fill="rgb(206,27,48)"/><text x="18.3416%" y="127.50">ba..</text></g><g><title>bananagrams`&lt;ndarray::iterators::Iter&lt;A,D&gt; as core::iter::traits::iterator::Iterator&gt;::size_hint (40 samples, 0.15%)</title><rect x="20.6094%" y="133" width="0.1545%" height="15" fill="rgb(225,35,8)"/><text x="20.8594%" y="143.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;&amp;T,core::slice::Iter&lt;T&gt;&gt;&gt;::spec_extend (39 samples, 0.15%)</title><rect x="21.2234%" y="85" width="0.1506%" height="15" fill="rgb(250,213,24)"/><text x="21.4734%" y="95.50"></text></g><g><title>bananagrams`&lt;&amp;mut W as core::fmt::Write&gt;::write_str (45 samples, 0.17%)</title><rect x="21.2079%" y="101" width="0.1738%" height="15" fill="rgb(247,123,22)"/><text x="21.4579%" y="111.50"></text></g><g><title>bananagrams`_mi_heap_realloc_zero (31 samples, 0.12%)</title><rect x="21.6597%" y="53" width="0.1197%" height="15" fill="rgb(231,138,38)"/><text x="21.9097%" y="63.50"></text></g><g><title>bananagrams`alloc::string::String::push (95 samples, 0.37%)</title><rect x="21.5323%" y="69" width="0.3669%" height="15" fill="rgb(231,145,46)"/><text x="21.7823%" y="79.50"></text></g><g><title>bananagrams`&lt;&amp;mut W as core::fmt::Write&gt;::write_char (108 samples, 0.42%)</title><rect x="21.4898%" y="85" width="0.4171%" height="15" fill="rgb(251,118,11)"/><text x="21.7398%" y="95.50"></text></g><g><title>bananagrams`alloc::fmt::format (241 samples, 0.93%)</title><rect x="21.0264%" y="133" width="0.9306%" height="15" fill="rgb(217,147,25)"/><text x="21.2764%" y="143.50"></text></g><g><title>bananagrams`core::fmt::write (231 samples, 0.89%)</title><rect x="21.0650%" y="117" width="0.8920%" height="15" fill="rgb(247,81,37)"/><text x="21.3150%" y="127.50"></text></g><g><title>bananagrams`core::fmt::Formatter::pad (148 samples, 0.57%)</title><rect x="21.3855%" y="101" width="0.5715%" height="15" fill="rgb(209,12,38)"/><text x="21.6355%" y="111.50"></text></g><g><title>bananagrams`mi_usable_size (42 samples, 0.16%)</title><rect x="22.9418%" y="101" width="0.1622%" height="15" fill="rgb(227,1,9)"/><text x="23.1918%" y="111.50"></text></g><g><title>bananagrams`_mi_heap_realloc_zero (213 samples, 0.82%)</title><rect x="22.3896%" y="117" width="0.8225%" height="15" fill="rgb(248,47,43)"/><text x="22.6396%" y="127.50"></text></g><g><title>libsystem_platform.dylib`_platform_memmove$VARIANT$Haswell (28 samples, 0.11%)</title><rect x="23.1040%" y="101" width="0.1081%" height="15" fill="rgb(221,10,30)"/><text x="23.3540%" y="111.50"></text></g><g><title>bananagrams`mi_malloc (127 samples, 0.49%)</title><rect x="23.2121%" y="117" width="0.4904%" height="15" fill="rgb(210,229,1)"/><text x="23.4621%" y="127.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (40 samples, 0.15%)</title><rect x="23.7797%" y="117" width="0.1545%" height="15" fill="rgb(222,148,37)"/><text x="24.0297%" y="127.50"></text></g><g><title>bananagrams`alloc::raw_vec::RawVec&lt;T,A&gt;::reserve (518 samples, 2.00%)</title><rect x="21.9571%" y="133" width="2.0003%" height="15" fill="rgb(234,67,33)"/><text x="22.2071%" y="143.50">b..</text></g><g><title>bananagrams`mi_malloc (137 samples, 0.53%)</title><rect x="24.3165%" y="117" width="0.5290%" height="15" fill="rgb(247,98,35)"/><text x="24.5665%" y="127.50"></text></g><g><title>bananagrams`alloc::slice::_&lt;impl alloc::borrow::ToOwned for [T]&gt;::to_owned (260 samples, 1.00%)</title><rect x="23.9574%" y="133" width="1.0040%" height="15" fill="rgb(247,138,52)"/><text x="24.2074%" y="143.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Splice&lt;I&gt; as core::ops::drop::Drop&gt;::drop (88 samples, 0.34%)</title><rect x="25.0772%" y="117" width="0.3398%" height="15" fill="rgb(213,79,30)"/><text x="25.3272%" y="127.50"></text></g><g><title>bananagrams`alloc::string::String::replace_range (125 samples, 0.48%)</title><rect x="24.9614%" y="133" width="0.4827%" height="15" fill="rgb(246,177,23)"/><text x="25.2114%" y="143.50"></text></g><g><title>bananagrams`mi_malloc (122 samples, 0.47%)</title><rect x="27.0273%" y="101" width="0.4711%" height="15" fill="rgb(230,62,27)"/><text x="27.2773%" y="111.50"></text></g><g><title>bananagrams`alloc::slice::_&lt;impl alloc::borrow::ToOwned for [T]&gt;::to_owned (265 samples, 1.02%)</title><rect x="26.5871%" y="117" width="1.0233%" height="15" fill="rgb(216,154,8)"/><text x="26.8371%" y="127.50"></text></g><g><title>bananagrams`mi_free (63 samples, 0.24%)</title><rect x="27.6182%" y="117" width="0.2433%" height="15" fill="rgb(244,35,45)"/><text x="27.8682%" y="127.50"></text></g><g><title>bananagrams`bananagrams::can_be_made_with (702 samples, 2.71%)</title><rect x="25.4441%" y="133" width="2.7108%" height="15" fill="rgb(251,115,12)"/><text x="25.6941%" y="143.50">ba..</text></g><g><title>libsystem_platform.dylib`_platform_memmove$VARIANT$Haswell (65 samples, 0.25%)</title><rect x="27.9039%" y="117" width="0.2510%" height="15" fill="rgb(240,54,50)"/><text x="28.1539%" y="127.50"></text></g><g><title>bananagrams`core::iter::adapters::map_fold::_{{closure}} (76 samples, 0.29%)</title><rect x="28.1588%" y="133" width="0.2935%" height="15" fill="rgb(233,84,52)"/><text x="28.4088%" y="143.50"></text></g><g><title>bananagrams`core::str::_&lt;impl str&gt;::trim (43 samples, 0.17%)</title><rect x="28.4561%" y="133" width="0.1660%" height="15" fill="rgb(207,117,47)"/><text x="28.7061%" y="143.50"></text></g><g><title>bananagrams`mi_free (167 samples, 0.64%)</title><rect x="28.6222%" y="133" width="0.6449%" height="15" fill="rgb(249,43,39)"/><text x="28.8722%" y="143.50"></text></g><g><title>bananagrams`mi_malloc (43 samples, 0.17%)</title><rect x="29.2671%" y="133" width="0.1660%" height="15" fill="rgb(209,38,44)"/><text x="29.5171%" y="143.50"></text></g><g><title>bananagrams`ndarray::impl_methods::_&lt;impl ndarray::ArrayBase&lt;S,D&gt;&gt;::slice (282 samples, 1.09%)</title><rect x="29.5219%" y="133" width="1.0890%" height="15" fill="rgb(236,212,23)"/><text x="29.7719%" y="143.50"></text></g><g><title>bananagrams`ndarray::dimension::do_slice (119 samples, 0.46%)</title><rect x="30.1514%" y="117" width="0.4595%" height="15" fill="rgb(242,79,21)"/><text x="30.4014%" y="127.50"></text></g><g><title>bananagrams`ndarray::iterators::Iter&lt;A,D&gt;::new (154 samples, 0.59%)</title><rect x="30.6109%" y="133" width="0.5947%" height="15" fill="rgb(211,96,35)"/><text x="30.8609%" y="143.50"></text></g><g><title>bananagrams`ndarray::impl_methods::_&lt;impl ndarray::ArrayBase&lt;S,D&gt;&gt;::is_standard_layout::is_standard_layout (52 samples, 0.20%)</title><rect x="31.0048%" y="117" width="0.2008%" height="15" fill="rgb(253,215,40)"/><text x="31.2548%" y="127.50"></text></g><g><title>bananagrams`bananagrams::Grid::fits_in_row (5,465 samples, 21.10%)</title><rect x="10.3027%" y="149" width="21.1036%" height="15" fill="rgb(211,81,21)"/><text x="10.5527%" y="159.50">bananagrams`bananagrams::Grid::fi..</text></g><g><title>libsystem_platform.dylib`_platform_memmove$VARIANT$Haswell (50 samples, 0.19%)</title><rect x="31.2133%" y="133" width="0.1931%" height="15" fill="rgb(208,190,38)"/><text x="31.4633%" y="143.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;T,I&gt;&gt;::from_iter (5,611 samples, 21.67%)</title><rect x="9.8509%" y="165" width="21.6674%" height="15" fill="rgb(235,213,38)"/><text x="10.1009%" y="175.50">bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as..</text></g><g><title>bananagrams`mi_malloc (154 samples, 0.59%)</title><rect x="31.9779%" y="133" width="0.5947%" height="15" fill="rgb(237,122,38)"/><text x="32.2279%" y="143.50"></text></g><g><title>bananagrams`&lt;alloc::string::String as core::clone::Clone&gt;::clone (334 samples, 1.29%)</title><rect x="31.6458%" y="149" width="1.2898%" height="15" fill="rgb(244,218,35)"/><text x="31.8958%" y="159.50"></text></g><g><title>libsystem_platform.dylib`_platform_memmove$VARIANT$Haswell (82 samples, 0.32%)</title><rect x="32.6189%" y="133" width="0.3167%" height="15" fill="rgb(240,68,47)"/><text x="32.8689%" y="143.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as core::clone::Clone&gt;::clone (416 samples, 1.61%)</title><rect x="31.5184%" y="165" width="1.6064%" height="15" fill="rgb(210,16,53)"/><text x="31.7684%" y="175.50"></text></g><g><title>bananagrams`bananagrams::Grid::hash (47 samples, 0.18%)</title><rect x="33.3140%" y="165" width="0.1815%" height="15" fill="rgb(235,124,12)"/><text x="33.5640%" y="175.50"></text></g><g><title>bananagrams`bananagrams::Grid::valid_bananagrams (52 samples, 0.20%)</title><rect x="33.4955%" y="165" width="0.2008%" height="15" fill="rgb(224,169,11)"/><text x="33.7455%" y="175.50"></text></g><g><title>bananagrams`alloc::raw_vec::RawVec&lt;T,A&gt;::reserve (42 samples, 0.16%)</title><rect x="33.9782%" y="149" width="0.1622%" height="15" fill="rgb(250,166,2)"/><text x="34.2282%" y="159.50"></text></g><g><title>bananagrams`bananagrams::Grid::word_placements_for (122 samples, 0.47%)</title><rect x="33.6963%" y="165" width="0.4711%" height="15" fill="rgb(242,216,29)"/><text x="33.9463%" y="175.50"></text></g><g><title>bananagrams`mi_free (63 samples, 0.24%)</title><rect x="34.2099%" y="165" width="0.2433%" height="15" fill="rgb(230,116,27)"/><text x="34.4599%" y="175.50"></text></g><g><title>bananagrams`__rg_dealloc (48 samples, 0.19%)</title><rect x="35.0402%" y="133" width="0.1854%" height="15" fill="rgb(228,99,48)"/><text x="35.2902%" y="143.50"></text></g><g><title>bananagrams`mi_malloc (45 samples, 0.17%)</title><rect x="39.1450%" y="101" width="0.1738%" height="15" fill="rgb(253,11,6)"/><text x="39.3950%" y="111.50"></text></g><g><title>bananagrams`&lt;alloc::string::String as core::clone::Clone&gt;::clone (102 samples, 0.39%)</title><rect x="39.0562%" y="117" width="0.3939%" height="15" fill="rgb(247,143,39)"/><text x="39.3062%" y="127.50"></text></g><g><title>bananagrams`mi_usable_size (40 samples, 0.15%)</title><rect x="41.8404%" y="69" width="0.1545%" height="15" fill="rgb(236,97,10)"/><text x="42.0904%" y="79.50"></text></g><g><title>bananagrams`_mi_heap_realloc_zero (138 samples, 0.53%)</title><rect x="41.4852%" y="85" width="0.5329%" height="15" fill="rgb(233,208,19)"/><text x="41.7352%" y="95.50"></text></g><g><title>bananagrams`alloc::raw_vec::RawVec&lt;T,A&gt;::reserve (230 samples, 0.89%)</title><rect x="41.2612%" y="101" width="0.8882%" height="15" fill="rgb(216,164,2)"/><text x="41.5112%" y="111.50"></text></g><g><title>bananagrams`mi_malloc (151 samples, 0.58%)</title><rect x="42.1494%" y="101" width="0.5831%" height="15" fill="rgb(220,129,5)"/><text x="42.3994%" y="111.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (47 samples, 0.18%)</title><rect x="42.7595%" y="101" width="0.1815%" height="15" fill="rgb(242,17,10)"/><text x="43.0095%" y="111.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;T,I&gt;&gt;::from_iter (899 samples, 3.47%)</title><rect x="39.4887%" y="117" width="3.4716%" height="15" fill="rgb(242,107,0)"/><text x="39.7387%" y="127.50">ban..</text></g><g><title>bananagrams`&lt;ndarray::iterators::Iter&lt;A,D&gt; as core::iter::traits::iterator::Iterator&gt;::fold (1,961 samples, 7.57%)</title><rect x="42.9603%" y="117" width="7.5726%" height="15" fill="rgb(251,28,31)"/><text x="43.2103%" y="127.50">bananagram..</text></g><g><title>bananagrams`core::iter::adapters::map_fold::_{{closure}} (955 samples, 3.69%)</title><rect x="46.8451%" y="101" width="3.6878%" height="15" fill="rgb(233,223,10)"/><text x="47.0951%" y="111.50">bana..</text></g><g><title>bananagrams`&lt;ndarray::iterators::Iter&lt;A,D&gt; as core::iter::traits::iterator::Iterator&gt;::size_hint (46 samples, 0.18%)</title><rect x="50.5329%" y="117" width="0.1776%" height="15" fill="rgb(215,21,27)"/><text x="50.7829%" y="127.50"></text></g><g><title>bananagrams`__rg_alloc (28 samples, 0.11%)</title><rect x="50.7453%" y="117" width="0.1081%" height="15" fill="rgb(232,23,21)"/><text x="50.9953%" y="127.50"></text></g><g><title>bananagrams`__rust_alloc (27 samples, 0.10%)</title><rect x="50.9847%" y="117" width="0.1043%" height="15" fill="rgb(244,5,23)"/><text x="51.2347%" y="127.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;&amp;T,core::slice::Iter&lt;T&gt;&gt;&gt;::spec_extend (49 samples, 0.19%)</title><rect x="51.4172%" y="69" width="0.1892%" height="15" fill="rgb(226,81,46)"/><text x="51.6672%" y="79.50"></text></g><g><title>bananagrams`&lt;&amp;mut W as core::fmt::Write&gt;::write_str (59 samples, 0.23%)</title><rect x="51.4133%" y="85" width="0.2278%" height="15" fill="rgb(247,70,30)"/><text x="51.6633%" y="95.50"></text></g><g><title>bananagrams`_mi_heap_realloc_zero (34 samples, 0.13%)</title><rect x="51.9269%" y="37" width="0.1313%" height="15" fill="rgb(212,68,19)"/><text x="52.1769%" y="47.50"></text></g><g><title>bananagrams`alloc::string::String::push (93 samples, 0.36%)</title><rect x="51.8111%" y="53" width="0.3591%" height="15" fill="rgb(240,187,13)"/><text x="52.0611%" y="63.50"></text></g><g><title>bananagrams`&lt;&amp;mut W as core::fmt::Write&gt;::write_char (103 samples, 0.40%)</title><rect x="51.7802%" y="69" width="0.3977%" height="15" fill="rgb(223,113,26)"/><text x="52.0302%" y="79.50"></text></g><g><title>bananagrams`alloc::fmt::format (281 samples, 1.09%)</title><rect x="51.1662%" y="117" width="1.0851%" height="15" fill="rgb(206,192,2)"/><text x="51.4162%" y="127.50"></text></g><g><title>bananagrams`core::fmt::write (262 samples, 1.01%)</title><rect x="51.2396%" y="101" width="1.0117%" height="15" fill="rgb(241,108,4)"/><text x="51.4896%" y="111.50"></text></g><g><title>bananagrams`core::fmt::Formatter::pad (157 samples, 0.61%)</title><rect x="51.6450%" y="85" width="0.6063%" height="15" fill="rgb(247,173,49)"/><text x="51.8950%" y="95.50"></text></g><g><title>bananagrams`mi_usable_size (62 samples, 0.24%)</title><rect x="53.6338%" y="85" width="0.2394%" height="15" fill="rgb(224,114,35)"/><text x="53.8838%" y="95.50"></text></g><g><title>bananagrams`_mi_heap_realloc_zero (272 samples, 1.05%)</title><rect x="52.9116%" y="101" width="1.0504%" height="15" fill="rgb(245,159,27)"/><text x="53.1616%" y="111.50"></text></g><g><title>bananagrams`mi_malloc (201 samples, 0.78%)</title><rect x="53.9697%" y="101" width="0.7762%" height="15" fill="rgb(245,172,44)"/><text x="54.2197%" y="111.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (74 samples, 0.29%)</title><rect x="54.8579%" y="101" width="0.2858%" height="15" fill="rgb(236,23,11)"/><text x="55.1079%" y="111.50"></text></g><g><title>bananagrams`alloc::raw_vec::RawVec&lt;T,A&gt;::reserve (756 samples, 2.92%)</title><rect x="52.2513%" y="117" width="2.9194%" height="15" fill="rgb(205,117,38)"/><text x="52.5013%" y="127.50">ba..</text></g><g><title>bananagrams`mi_malloc (247 samples, 0.95%)</title><rect x="55.7113%" y="101" width="0.9538%" height="15" fill="rgb(237,72,25)"/><text x="55.9613%" y="111.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (127 samples, 0.49%)</title><rect x="56.6651%" y="101" width="0.4904%" height="15" fill="rgb(244,70,9)"/><text x="56.9151%" y="111.50"></text></g><g><title>bananagrams`alloc::slice::_&lt;impl alloc::borrow::ToOwned for [T]&gt;::to_owned (541 samples, 2.09%)</title><rect x="55.1707%" y="117" width="2.0891%" height="15" fill="rgb(217,125,39)"/><text x="55.4207%" y="127.50">b..</text></g><g><title>libsystem_platform.dylib`_platform_memmove$VARIANT$Haswell (27 samples, 0.10%)</title><rect x="57.1555%" y="101" width="0.1043%" height="15" fill="rgb(235,36,10)"/><text x="57.4055%" y="111.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Splice&lt;I&gt; as core::ops::drop::Drop&gt;::drop (66 samples, 0.25%)</title><rect x="57.3757%" y="101" width="0.2549%" height="15" fill="rgb(251,123,47)"/><text x="57.6257%" y="111.50"></text></g><g><title>bananagrams`alloc::string::String::replace_range (102 samples, 0.39%)</title><rect x="57.2598%" y="117" width="0.3939%" height="15" fill="rgb(221,13,13)"/><text x="57.5098%" y="127.50"></text></g><g><title>bananagrams`mi_malloc (194 samples, 0.75%)</title><rect x="59.6733%" y="85" width="0.7492%" height="15" fill="rgb(238,131,9)"/><text x="59.9233%" y="95.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (63 samples, 0.24%)</title><rect x="60.4225%" y="85" width="0.2433%" height="15" fill="rgb(211,50,8)"/><text x="60.6725%" y="95.50"></text></g><g><title>bananagrams`alloc::slice::_&lt;impl alloc::borrow::ToOwned for [T]&gt;::to_owned (426 samples, 1.65%)</title><rect x="59.1327%" y="101" width="1.6450%" height="15" fill="rgb(245,182,24)"/><text x="59.3827%" y="111.50"></text></g><g><title>libsystem_platform.dylib`_platform_memmove$VARIANT$Haswell (29 samples, 0.11%)</title><rect x="60.6657%" y="85" width="0.1120%" height="15" fill="rgb(242,14,37)"/><text x="60.9157%" y="95.50"></text></g><g><title>bananagrams`mi_free (79 samples, 0.31%)</title><rect x="60.7816%" y="101" width="0.3051%" height="15" fill="rgb(246,228,12)"/><text x="61.0316%" y="111.50"></text></g><g><title>bananagrams`bananagrams::can_be_made_with (989 samples, 3.82%)</title><rect x="57.6537%" y="117" width="3.8191%" height="15" fill="rgb(213,55,15)"/><text x="57.9037%" y="127.50">bana..</text></g><g><title>libsystem_platform.dylib`_platform_memmove$VARIANT$Haswell (80 samples, 0.31%)</title><rect x="61.1639%" y="101" width="0.3089%" height="15" fill="rgb(209,9,3)"/><text x="61.4139%" y="111.50"></text></g><g><title>bananagrams`core::iter::adapters::map_fold::_{{closure}} (106 samples, 0.41%)</title><rect x="61.4805%" y="117" width="0.4093%" height="15" fill="rgb(230,59,30)"/><text x="61.7305%" y="127.50"></text></g><g><title>bananagrams`core::str::_&lt;impl str&gt;::trim (47 samples, 0.18%)</title><rect x="61.8937%" y="117" width="0.1815%" height="15" fill="rgb(209,121,21)"/><text x="62.1437%" y="127.50"></text></g><g><title>bananagrams`mi_free (227 samples, 0.88%)</title><rect x="62.0752%" y="117" width="0.8766%" height="15" fill="rgb(220,109,13)"/><text x="62.3252%" y="127.50"></text></g><g><title>bananagrams`mi_malloc (56 samples, 0.22%)</title><rect x="62.9518%" y="117" width="0.2162%" height="15" fill="rgb(232,18,1)"/><text x="63.2018%" y="127.50"></text></g><g><title>bananagrams`ndarray::impl_methods::_&lt;impl ndarray::ArrayBase&lt;S,D&gt;&gt;::slice (415 samples, 1.60%)</title><rect x="63.2723%" y="117" width="1.6026%" height="15" fill="rgb(215,41,42)"/><text x="63.5223%" y="127.50"></text></g><g><title>bananagrams`ndarray::dimension::do_slice (180 samples, 0.70%)</title><rect x="64.1798%" y="101" width="0.6951%" height="15" fill="rgb(224,123,36)"/><text x="64.4298%" y="111.50"></text></g><g><title>bananagrams`ndarray::iterators::Iter&lt;A,D&gt;::new (187 samples, 0.72%)</title><rect x="64.8749%" y="117" width="0.7221%" height="15" fill="rgb(240,125,3)"/><text x="65.1249%" y="127.50"></text></g><g><title>bananagrams`ndarray::impl_methods::_&lt;impl ndarray::ArrayBase&lt;S,D&gt;&gt;::is_standard_layout::is_standard_layout (66 samples, 0.25%)</title><rect x="65.3421%" y="101" width="0.2549%" height="15" fill="rgb(205,98,50)"/><text x="65.5921%" y="111.50"></text></g><g><title>bananagrams`bananagrams::Grid::fits_in_row (7,893 samples, 30.48%)</title><rect x="35.4186%" y="133" width="30.4796%" height="15" fill="rgb(205,185,37)"/><text x="35.6686%" y="143.50">bananagrams`bananagrams::Grid::fits_in_row</text></g><g><title>libsystem_platform.dylib`_platform_memmove$VARIANT$Haswell (77 samples, 0.30%)</title><rect x="65.6009%" y="117" width="0.2973%" height="15" fill="rgb(238,207,15)"/><text x="65.8509%" y="127.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;T,I&gt;&gt;::from_iter (8,098 samples, 31.27%)</title><rect x="34.7351%" y="149" width="31.2712%" height="15" fill="rgb(213,199,42)"/><text x="34.9851%" y="159.50">bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::Spec..</text></g><g><title>bananagrams`mi_malloc (106 samples, 0.41%)</title><rect x="66.4697%" y="117" width="0.4093%" height="15" fill="rgb(235,201,11)"/><text x="66.7197%" y="127.50"></text></g><g><title>bananagrams`&lt;alloc::string::String as core::clone::Clone&gt;::clone (266 samples, 1.03%)</title><rect x="66.1415%" y="133" width="1.0272%" height="15" fill="rgb(207,46,11)"/><text x="66.3915%" y="143.50"></text></g><g><title>libsystem_platform.dylib`_platform_memmove$VARIANT$Haswell (64 samples, 0.25%)</title><rect x="66.9215%" y="117" width="0.2471%" height="15" fill="rgb(241,35,35)"/><text x="67.1715%" y="127.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as core::clone::Clone&gt;::clone (345 samples, 1.33%)</title><rect x="66.0063%" y="149" width="1.3323%" height="15" fill="rgb(243,32,47)"/><text x="66.2563%" y="159.50"></text></g><g><title>bananagrams`bananagrams::Grid::hash (62 samples, 0.24%)</title><rect x="67.5510%" y="149" width="0.2394%" height="15" fill="rgb(247,202,23)"/><text x="67.8010%" y="159.50"></text></g><g><title>bananagrams`bananagrams::Grid::valid_bananagrams (81 samples, 0.31%)</title><rect x="67.7904%" y="149" width="0.3128%" height="15" fill="rgb(219,102,11)"/><text x="68.0404%" y="159.50"></text></g><g><title>bananagrams`alloc::raw_vec::RawVec&lt;T,A&gt;::reserve (32 samples, 0.12%)</title><rect x="68.3812%" y="133" width="0.1236%" height="15" fill="rgb(243,110,44)"/><text x="68.6312%" y="143.50"></text></g><g><title>bananagrams`bananagrams::Grid::word_placements_for (107 samples, 0.41%)</title><rect x="68.1032%" y="149" width="0.4132%" height="15" fill="rgb(222,74,54)"/><text x="68.3532%" y="159.50"></text></g><g><title>bananagrams`mi_free (94 samples, 0.36%)</title><rect x="68.5897%" y="149" width="0.3630%" height="15" fill="rgb(216,99,12)"/><text x="68.8397%" y="159.50"></text></g><g><title>bananagrams`__rg_dealloc (35 samples, 0.14%)</title><rect x="69.3003%" y="117" width="0.1352%" height="15" fill="rgb(226,22,26)"/><text x="69.5503%" y="127.50"></text></g><g><title>bananagrams`mi_malloc (42 samples, 0.16%)</title><rect x="72.0073%" y="85" width="0.1622%" height="15" fill="rgb(217,163,10)"/><text x="72.2573%" y="95.50"></text></g><g><title>bananagrams`&lt;alloc::string::String as core::clone::Clone&gt;::clone (64 samples, 0.25%)</title><rect x="71.9571%" y="101" width="0.2471%" height="15" fill="rgb(213,25,53)"/><text x="72.2071%" y="111.50"></text></g><g><title>bananagrams`mi_usable_size (36 samples, 0.14%)</title><rect x="73.8917%" y="53" width="0.1390%" height="15" fill="rgb(252,105,26)"/><text x="74.1417%" y="63.50"></text></g><g><title>bananagrams`_mi_heap_realloc_zero (99 samples, 0.38%)</title><rect x="73.6639%" y="69" width="0.3823%" height="15" fill="rgb(220,39,43)"/><text x="73.9139%" y="79.50"></text></g><g><title>bananagrams`alloc::raw_vec::RawVec&lt;T,A&gt;::reserve (181 samples, 0.70%)</title><rect x="73.4669%" y="85" width="0.6989%" height="15" fill="rgb(229,68,48)"/><text x="73.7169%" y="95.50"></text></g><g><title>bananagrams`mi_malloc (152 samples, 0.59%)</title><rect x="74.1659%" y="85" width="0.5870%" height="15" fill="rgb(252,8,32)"/><text x="74.4159%" y="95.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;T,I&gt;&gt;::from_iter (674 samples, 2.60%)</title><rect x="72.2081%" y="101" width="2.6027%" height="15" fill="rgb(223,20,43)"/><text x="72.4581%" y="111.50">ba..</text></g><g><title>bananagrams`&lt;ndarray::iterators::Iter&lt;A,D&gt; as core::iter::traits::iterator::Iterator&gt;::fold (1,302 samples, 5.03%)</title><rect x="74.8108%" y="101" width="5.0278%" height="15" fill="rgb(229,81,49)"/><text x="75.0608%" y="111.50">banana..</text></g><g><title>bananagrams`core::iter::adapters::map_fold::_{{closure}} (627 samples, 2.42%)</title><rect x="77.4174%" y="85" width="2.4212%" height="15" fill="rgb(236,28,36)"/><text x="77.6674%" y="95.50">ba..</text></g><g><title>bananagrams`&lt;ndarray::iterators::Iter&lt;A,D&gt; as core::iter::traits::iterator::Iterator&gt;::size_hint (33 samples, 0.13%)</title><rect x="79.8386%" y="101" width="0.1274%" height="15" fill="rgb(249,185,26)"/><text x="80.0886%" y="111.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;&amp;T,core::slice::Iter&lt;T&gt;&gt;&gt;::spec_extend (26 samples, 0.10%)</title><rect x="80.3097%" y="53" width="0.1004%" height="15" fill="rgb(249,174,33)"/><text x="80.5597%" y="63.50"></text></g><g><title>bananagrams`&lt;&amp;mut W as core::fmt::Write&gt;::write_str (29 samples, 0.11%)</title><rect x="80.3020%" y="69" width="0.1120%" height="15" fill="rgb(233,201,37)"/><text x="80.5520%" y="79.50"></text></g><g><title>bananagrams`alloc::string::String::push (42 samples, 0.16%)</title><rect x="80.4873%" y="37" width="0.1622%" height="15" fill="rgb(221,78,26)"/><text x="80.7373%" y="47.50"></text></g><g><title>bananagrams`&lt;&amp;mut W as core::fmt::Write&gt;::write_char (44 samples, 0.17%)</title><rect x="80.4835%" y="53" width="0.1699%" height="15" fill="rgb(250,127,30)"/><text x="80.7335%" y="63.50"></text></g><g><title>bananagrams`alloc::fmt::format (135 samples, 0.52%)</title><rect x="80.1591%" y="101" width="0.5213%" height="15" fill="rgb(230,49,44)"/><text x="80.4091%" y="111.50"></text></g><g><title>bananagrams`core::fmt::write (123 samples, 0.47%)</title><rect x="80.2054%" y="85" width="0.4750%" height="15" fill="rgb(229,67,23)"/><text x="80.4554%" y="95.50"></text></g><g><title>bananagrams`core::fmt::Formatter::pad (67 samples, 0.26%)</title><rect x="80.4217%" y="69" width="0.2587%" height="15" fill="rgb(249,83,47)"/><text x="80.6717%" y="79.50"></text></g><g><title>bananagrams`mi_usable_size (50 samples, 0.19%)</title><rect x="81.5918%" y="69" width="0.1931%" height="15" fill="rgb(215,43,3)"/><text x="81.8418%" y="79.50"></text></g><g><title>bananagrams`_mi_heap_realloc_zero (200 samples, 0.77%)</title><rect x="81.0743%" y="85" width="0.7723%" height="15" fill="rgb(238,154,13)"/><text x="81.3243%" y="95.50"></text></g><g><title>bananagrams`mi_malloc (145 samples, 0.56%)</title><rect x="81.8698%" y="85" width="0.5599%" height="15" fill="rgb(219,56,2)"/><text x="82.1198%" y="95.50"></text></g><g><title>libdyld.dylib`tlv_get_addr (35 samples, 0.14%)</title><rect x="82.4876%" y="85" width="0.1352%" height="15" fill="rgb(233,0,4)"/><text x="82.7376%" y="95.50"></text></g><g><title>bananagrams`alloc::raw_vec::RawVec&lt;T,A&gt;::reserve (511 samples, 1.97%)</title><rect x="80.6804%" y="101" width="1.9733%" height="15" fill="rgb(235,30,7)"/><text x="80.9304%" y="111.50">b..</text></g><g><title>bananagrams`mi_malloc (158 samples, 0.61%)</title><rect x="83.0707%" y="85" width="0.6101%" height="15" fill="rgb(250,79,13)"/><text x="83.3207%" y="95.50"></text></g><g><title>bananagrams`alloc::slice::_&lt;impl alloc::borrow::ToOwned for [T]&gt;::to_owned (303 samples, 1.17%)</title><rect x="82.6537%" y="101" width="1.1701%" height="15" fill="rgb(211,146,34)"/><text x="82.9037%" y="111.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Splice&lt;I&gt; as core::ops::drop::Drop&gt;::drop (44 samples, 0.17%)</title><rect x="83.9164%" y="85" width="0.1699%" height="15" fill="rgb(228,22,38)"/><text x="84.1664%" y="95.50"></text></g><g><title>bananagrams`alloc::string::String::replace_range (75 samples, 0.29%)</title><rect x="83.8238%" y="101" width="0.2896%" height="15" fill="rgb(235,168,5)"/><text x="84.0738%" y="111.50"></text></g><g><title>bananagrams`mi_malloc (145 samples, 0.56%)</title><rect x="85.5074%" y="69" width="0.5599%" height="15" fill="rgb(221,155,16)"/><text x="85.7574%" y="79.50"></text></g><g><title>bananagrams`alloc::slice::_&lt;impl alloc::borrow::ToOwned for [T]&gt;::to_owned (276 samples, 1.07%)</title><rect x="85.1097%" y="85" width="1.0658%" height="15" fill="rgb(215,215,53)"/><text x="85.3597%" y="95.50"></text></g><g><title>bananagrams`mi_free (77 samples, 0.30%)</title><rect x="86.1755%" y="85" width="0.2973%" height="15" fill="rgb(223,4,10)"/><text x="86.4255%" y="95.50"></text></g><g><title>bananagrams`bananagrams::can_be_made_with (660 samples, 2.55%)</title><rect x="84.1134%" y="101" width="2.5487%" height="15" fill="rgb(234,103,6)"/><text x="84.3634%" y="111.50">ba..</text></g><g><title>libsystem_platform.dylib`_platform_memmove$VARIANT$Haswell (40 samples, 0.15%)</title><rect x="86.5076%" y="85" width="0.1545%" height="15" fill="rgb(227,97,0)"/><text x="86.7576%" y="95.50"></text></g><g><title>bananagrams`core::iter::adapters::map_fold::_{{closure}} (80 samples, 0.31%)</title><rect x="86.6620%" y="101" width="0.3089%" height="15" fill="rgb(234,150,53)"/><text x="86.9120%" y="111.50"></text></g><g><title>bananagrams`core::str::_&lt;impl str&gt;::trim (33 samples, 0.13%)</title><rect x="86.9748%" y="101" width="0.1274%" height="15" fill="rgb(228,201,54)"/><text x="87.2248%" y="111.50"></text></g><g><title>bananagrams`mi_free (168 samples, 0.65%)</title><rect x="87.1023%" y="101" width="0.6487%" height="15" fill="rgb(222,22,37)"/><text x="87.3523%" y="111.50"></text></g><g><title>bananagrams`mi_malloc (48 samples, 0.19%)</title><rect x="87.7510%" y="101" width="0.1854%" height="15" fill="rgb(237,53,32)"/><text x="88.0010%" y="111.50"></text></g><g><title>bananagrams`ndarray::impl_methods::_&lt;impl ndarray::ArrayBase&lt;S,D&gt;&gt;::slice (253 samples, 0.98%)</title><rect x="88.0136%" y="101" width="0.9770%" height="15" fill="rgb(233,25,53)"/><text x="88.2636%" y="111.50"></text></g><g><title>bananagrams`ndarray::dimension::do_slice (107 samples, 0.41%)</title><rect x="88.5774%" y="85" width="0.4132%" height="15" fill="rgb(210,40,34)"/><text x="88.8274%" y="95.50"></text></g><g><title>bananagrams`ndarray::iterators::Iter&lt;A,D&gt;::new (125 samples, 0.48%)</title><rect x="88.9906%" y="101" width="0.4827%" height="15" fill="rgb(241,220,44)"/><text x="89.2406%" y="111.50"></text></g><g><title>bananagrams`ndarray::impl_methods::_&lt;impl ndarray::ArrayBase&lt;S,D&gt;&gt;::is_standard_layout::is_standard_layout (53 samples, 0.20%)</title><rect x="89.2686%" y="85" width="0.2047%" height="15" fill="rgb(235,28,35)"/><text x="89.5186%" y="95.50"></text></g><g><title>bananagrams`bananagrams::Grid::fits_in_row (5,207 samples, 20.11%)</title><rect x="69.5667%" y="117" width="20.1074%" height="15" fill="rgb(210,56,17)"/><text x="69.8167%" y="127.50">bananagrams`bananagrams::Grid::f..</text></g><g><title>libsystem_platform.dylib`_platform_memmove$VARIANT$Haswell (51 samples, 0.20%)</title><rect x="89.4771%" y="101" width="0.1969%" height="15" fill="rgb(224,130,29)"/><text x="89.7271%" y="111.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;T,I&gt;&gt;::from_iter (5,341 samples, 20.62%)</title><rect x="69.1304%" y="133" width="20.6248%" height="15" fill="rgb(235,212,8)"/><text x="69.3804%" y="143.50">bananagrams`&lt;alloc::vec::Vec&lt;T&gt; ..</text></g><g><title>bananagrams`mi_malloc (53 samples, 0.20%)</title><rect x="89.9251%" y="101" width="0.2047%" height="15" fill="rgb(223,33,50)"/><text x="90.1751%" y="111.50"></text></g><g><title>bananagrams`&lt;alloc::string::String as core::clone::Clone&gt;::clone (117 samples, 0.45%)</title><rect x="89.7822%" y="117" width="0.4518%" height="15" fill="rgb(219,149,13)"/><text x="90.0322%" y="127.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as core::clone::Clone&gt;::clone (137 samples, 0.53%)</title><rect x="89.7552%" y="133" width="0.5290%" height="15" fill="rgb(250,156,29)"/><text x="90.0052%" y="143.50"></text></g><g><title>bananagrams`bananagrams::Grid::hash (65 samples, 0.25%)</title><rect x="90.4116%" y="133" width="0.2510%" height="15" fill="rgb(216,193,19)"/><text x="90.6616%" y="143.50"></text></g><g><title>bananagrams`bananagrams::Grid::valid_bananagrams (56 samples, 0.22%)</title><rect x="90.6627%" y="133" width="0.2162%" height="15" fill="rgb(216,135,14)"/><text x="90.9127%" y="143.50"></text></g><g><title>bananagrams`alloc::raw_vec::RawVec&lt;T,A&gt;::reserve (29 samples, 0.11%)</title><rect x="91.0102%" y="117" width="0.1120%" height="15" fill="rgb(241,47,5)"/><text x="91.2602%" y="127.50"></text></g><g><title>bananagrams`bananagrams::Grid::word_placements_for (64 samples, 0.25%)</title><rect x="90.8789%" y="133" width="0.2471%" height="15" fill="rgb(233,42,35)"/><text x="91.1289%" y="143.50"></text></g><g><title>bananagrams`mi_free (84 samples, 0.32%)</title><rect x="91.1531%" y="133" width="0.3244%" height="15" fill="rgb(231,13,6)"/><text x="91.4031%" y="143.50"></text></g><g><title>bananagrams`_mi_heap_realloc_zero (39 samples, 0.15%)</title><rect x="93.0453%" y="53" width="0.1506%" height="15" fill="rgb(207,181,40)"/><text x="93.2953%" y="63.50"></text></g><g><title>bananagrams`alloc::raw_vec::RawVec&lt;T,A&gt;::reserve (69 samples, 0.27%)</title><rect x="92.9603%" y="69" width="0.2665%" height="15" fill="rgb(254,173,49)"/><text x="93.2103%" y="79.50"></text></g><g><title>bananagrams`mi_malloc (53 samples, 0.20%)</title><rect x="93.2268%" y="69" width="0.2047%" height="15" fill="rgb(221,1,38)"/><text x="93.4768%" y="79.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;T,I&gt;&gt;::from_iter (240 samples, 0.93%)</title><rect x="92.5201%" y="85" width="0.9268%" height="15" fill="rgb(206,124,46)"/><text x="92.7701%" y="95.50"></text></g><g><title>bananagrams`&lt;ndarray::iterators::Iter&lt;A,D&gt; as core::iter::traits::iterator::Iterator&gt;::fold (453 samples, 1.75%)</title><rect x="93.4469%" y="85" width="1.7493%" height="15" fill="rgb(249,21,11)"/><text x="93.6969%" y="95.50"></text></g><g><title>bananagrams`core::iter::adapters::map_fold::_{{closure}} (213 samples, 0.82%)</title><rect x="94.3736%" y="69" width="0.8225%" height="15" fill="rgb(222,201,40)"/><text x="94.6236%" y="79.50"></text></g><g><title>bananagrams`alloc::fmt::format (47 samples, 0.18%)</title><rect x="95.3429%" y="85" width="0.1815%" height="15" fill="rgb(235,61,29)"/><text x="95.5929%" y="95.50"></text></g><g><title>bananagrams`core::fmt::write (44 samples, 0.17%)</title><rect x="95.3545%" y="69" width="0.1699%" height="15" fill="rgb(219,207,3)"/><text x="95.6045%" y="79.50"></text></g><g><title>bananagrams`core::fmt::Formatter::pad (28 samples, 0.11%)</title><rect x="95.4163%" y="53" width="0.1081%" height="15" fill="rgb(222,56,46)"/><text x="95.6663%" y="63.50"></text></g><g><title>bananagrams`_mi_heap_realloc_zero (69 samples, 0.27%)</title><rect x="95.6866%" y="69" width="0.2665%" height="15" fill="rgb(239,76,54)"/><text x="95.9366%" y="79.50"></text></g><g><title>bananagrams`mi_malloc (59 samples, 0.23%)</title><rect x="95.9530%" y="69" width="0.2278%" height="15" fill="rgb(231,124,27)"/><text x="96.2030%" y="79.50"></text></g><g><title>bananagrams`alloc::raw_vec::RawVec&lt;T,A&gt;::reserve (191 samples, 0.74%)</title><rect x="95.5244%" y="85" width="0.7376%" height="15" fill="rgb(249,195,6)"/><text x="95.7744%" y="95.50"></text></g><g><title>bananagrams`mi_malloc (61 samples, 0.24%)</title><rect x="96.3817%" y="69" width="0.2356%" height="15" fill="rgb(237,174,47)"/><text x="96.6317%" y="79.50"></text></g><g><title>bananagrams`alloc::slice::_&lt;impl alloc::borrow::ToOwned for [T]&gt;::to_owned (102 samples, 0.39%)</title><rect x="96.2620%" y="85" width="0.3939%" height="15" fill="rgb(206,201,31)"/><text x="96.5120%" y="95.50"></text></g><g><title>bananagrams`mi_malloc (40 samples, 0.15%)</title><rect x="97.1463%" y="53" width="0.1545%" height="15" fill="rgb(231,57,52)"/><text x="97.3963%" y="63.50"></text></g><g><title>bananagrams`alloc::slice::_&lt;impl alloc::borrow::ToOwned for [T]&gt;::to_owned (86 samples, 0.33%)</title><rect x="97.0111%" y="69" width="0.3321%" height="15" fill="rgb(248,177,22)"/><text x="97.2611%" y="79.50"></text></g><g><title>bananagrams`bananagrams::can_be_made_with (185 samples, 0.71%)</title><rect x="96.7176%" y="85" width="0.7144%" height="15" fill="rgb(215,211,37)"/><text x="96.9676%" y="95.50"></text></g><g><title>bananagrams`core::iter::adapters::map_fold::_{{closure}} (31 samples, 0.12%)</title><rect x="97.4320%" y="85" width="0.1197%" height="15" fill="rgb(241,128,51)"/><text x="97.6820%" y="95.50"></text></g><g><title>bananagrams`mi_free (44 samples, 0.17%)</title><rect x="97.5633%" y="85" width="0.1699%" height="15" fill="rgb(227,165,31)"/><text x="97.8133%" y="95.50"></text></g><g><title>bananagrams`ndarray::impl_methods::_&lt;impl ndarray::ArrayBase&lt;S,D&gt;&gt;::slice (112 samples, 0.43%)</title><rect x="97.8259%" y="85" width="0.4325%" height="15" fill="rgb(228,167,24)"/><text x="98.0759%" y="95.50"></text></g><g><title>bananagrams`ndarray::dimension::do_slice (47 samples, 0.18%)</title><rect x="98.0769%" y="69" width="0.1815%" height="15" fill="rgb(228,143,12)"/><text x="98.3269%" y="79.50"></text></g><g><title>bananagrams`ndarray::iterators::Iter&lt;A,D&gt;::new (48 samples, 0.19%)</title><rect x="98.2584%" y="85" width="0.1854%" height="15" fill="rgb(249,149,8)"/><text x="98.5084%" y="95.50"></text></g><g><title>bananagrams`bananagrams::Grid::fits_in_row (1,777 samples, 6.86%)</title><rect x="91.6705%" y="101" width="6.8621%" height="15" fill="rgb(243,35,44)"/><text x="91.9205%" y="111.50">bananagra..</text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;T,I&gt;&gt;::from_iter (1,816 samples, 7.01%)</title><rect x="91.5470%" y="117" width="7.0127%" height="15" fill="rgb(246,89,9)"/><text x="91.7970%" y="127.50">bananagra..</text></g><g><title>bananagrams`bananagrams::Grid::hash (34 samples, 0.13%)</title><rect x="98.7334%" y="117" width="0.1313%" height="15" fill="rgb(233,213,13)"/><text x="98.9834%" y="127.50"></text></g><g><title>bananagrams`mi_free (37 samples, 0.14%)</title><rect x="99.0269%" y="117" width="0.1429%" height="15" fill="rgb(233,141,41)"/><text x="99.2769%" y="127.50"></text></g><g><title>bananagrams`&lt;ndarray::iterators::Iter&lt;A,D&gt; as core::iter::traits::iterator::Iterator&gt;::fold (52 samples, 0.20%)</title><rect x="99.3551%" y="69" width="0.2008%" height="15" fill="rgb(239,167,4)"/><text x="99.6051%" y="79.50"></text></g><g><title>bananagrams`core::iter::adapters::map_fold::_{{closure}} (33 samples, 0.13%)</title><rect x="99.4285%" y="53" width="0.1274%" height="15" fill="rgb(209,217,16)"/><text x="99.6785%" y="63.50"></text></g><g><title>bananagrams`bananagrams::Grid::fits_in_row (175 samples, 0.68%)</title><rect x="99.2006%" y="85" width="0.6758%" height="15" fill="rgb(219,88,35)"/><text x="99.4506%" y="95.50"></text></g><g><title>bananagrams`&lt;alloc::vec::Vec&lt;T&gt; as alloc::vec::SpecExtend&lt;T,I&gt;&gt;::from_iter (183 samples, 0.71%)</title><rect x="99.1736%" y="101" width="0.7067%" height="15" fill="rgb(220,193,23)"/><text x="99.4236%" y="111.50"></text></g><g><title>bananagrams`std::thread::local::LocalKey&lt;T&gt;::with (2,191 samples, 8.46%)</title><rect x="91.4774%" y="133" width="8.4608%" height="15" fill="rgb(230,90,52)"/><text x="91.7274%" y="143.50">bananagrams`..</text></g><g><title>bananagrams`std::thread::local::LocalKey&lt;T&gt;::with (199 samples, 0.77%)</title><rect x="99.1698%" y="117" width="0.7685%" height="15" fill="rgb(252,106,19)"/><text x="99.4198%" y="127.50"></text></g><g><title>bananagrams`std::thread::local::LocalKey&lt;T&gt;::with (8,026 samples, 30.99%)</title><rect x="68.9566%" y="149" width="30.9932%" height="15" fill="rgb(206,74,20)"/><text x="69.2066%" y="159.50">bananagrams`std::thread::local::LocalKey&lt;T&gt;::with</text></g><g><title>bananagrams`std::thread::local::LocalKey&lt;T&gt;::with (16,967 samples, 65.52%)</title><rect x="34.4532%" y="165" width="65.5198%" height="15" fill="rgb(230,138,44)"/><text x="34.7032%" y="175.50">bananagrams`std::thread::local::LocalKey&lt;T&gt;::with</text></g><g><title>bananagrams`std::thread::local::LocalKey&lt;T&gt;::with (23,396 samples, 90.35%)</title><rect x="9.6386%" y="181" width="90.3460%" height="15" fill="rgb(235,182,43)"/><text x="9.8886%" y="191.50">bananagrams`std::thread::local::LocalKey&lt;T&gt;::with</text></g><g><title>bananagrams`main (25,895 samples, 100.00%)</title><rect x="0.0000%" y="325" width="99.9961%" height="15" fill="rgb(242,16,51)"/><text x="0.2500%" y="335.50">bananagrams`main</text></g><g><title>bananagrams`std::rt::lang_start_internal (25,895 samples, 100.00%)</title><rect x="0.0000%" y="309" width="99.9961%" height="15" fill="rgb(248,9,4)"/><text x="0.2500%" y="319.50">bananagrams`std::rt::lang_start_internal</text></g><g><title>bananagrams`std::rt::lang_start::_{{closure}} (25,895 samples, 100.00%)</title><rect x="0.0000%" y="293" width="99.9961%" height="15" fill="rgb(210,31,22)"/><text x="0.2500%" y="303.50">bananagrams`std::rt::lang_start::_{{closure}}</text></g><g><title>bananagrams`bananagrams::main (25,895 samples, 100.00%)</title><rect x="0.0000%" y="277" width="99.9961%" height="15" fill="rgb(239,54,39)"/><text x="0.2500%" y="287.50">bananagrams`bananagrams::main</text></g><g><title>bananagrams`std::thread::local::LocalKey&lt;T&gt;::with (25,870 samples, 99.90%)</title><rect x="0.0965%" y="261" width="99.8996%" height="15" fill="rgb(230,99,41)"/><text x="0.3465%" y="271.50">bananagrams`std::thread::local::LocalKey&lt;T&gt;::with</text></g><g><title>bananagrams`std::thread::local::LocalKey&lt;T&gt;::with (25,870 samples, 99.90%)</title><rect x="0.0965%" y="245" width="99.8996%" height="15" fill="rgb(253,106,12)"/><text x="0.3465%" y="255.50">bananagrams`std::thread::local::LocalKey&lt;T&gt;::with</text></g><g><title>bananagrams`std::thread::local::LocalKey&lt;T&gt;::with (25,869 samples, 99.90%)</title><rect x="0.1004%" y="229" width="99.8957%" height="15" fill="rgb(213,46,41)"/><text x="0.3504%" y="239.50">bananagrams`std::thread::local::LocalKey&lt;T&gt;::with</text></g><g><title>bananagrams`std::thread::local::LocalKey&lt;T&gt;::with (25,837 samples, 99.77%)</title><rect x="0.2240%" y="213" width="99.7722%" height="15" fill="rgb(215,133,35)"/><text x="0.4740%" y="223.50">bananagrams`std::thread::local::LocalKey&lt;T&gt;::with</text></g><g><title>bananagrams`std::thread::local::LocalKey&lt;T&gt;::with (25,495 samples, 98.45%)</title><rect x="1.5446%" y="197" width="98.4515%" height="15" fill="rgb(213,28,5)"/><text x="1.7946%" y="207.50">bananagrams`std::thread::local::LocalKey&lt;T&gt;::with</text></g><g><title>all (25,896 samples, 100%)</title><rect x="0.0000%" y="373" width="100.0000%" height="15" fill="rgb(215,77,49)"/><text x="0.2500%" y="383.50"></text></g><g><title>bananagrams`0x4 (25,896 samples, 100.00%)</title><rect x="0.0000%" y="357" width="100.0000%" height="15" fill="rgb(248,100,22)"/><text x="0.2500%" y="367.50">bananagrams`0x4</text></g><g><title>libdyld.dylib`start (25,896 samples, 100.00%)</title><rect x="0.0000%" y="341" width="100.0000%" height="15" fill="rgb(208,67,9)"/><text x="0.2500%" y="351.50">libdyld.dylib`start</text></g></svg></svg>

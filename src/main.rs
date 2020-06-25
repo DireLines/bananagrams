@@ -33,13 +33,13 @@ fn main() {
     if num_args() < 2 || arg_exists("-help") {
         println!(
             "Usage: ./bananagrams [tiles]
-Ex: ./bananagrams loremipsum -c -s -f common.txt
-Options:
-      -s to try shorter words first
-      -l to try longer words first
-      -c to check if valid at every step
-      -r to randomize word choosing order
-      -f to choose a file of words to draw from"
+    Ex: ./bananagrams loremipsum -c -s -f common.txt
+    Options:
+          -s to try shorter words first
+          -l to try longer words first
+          -c to check if valid at every step
+          -r to randomize word choosing order
+          -f to choose a file of words to draw from"
         );
         return;
     }
@@ -55,6 +55,7 @@ Options:
         println!("file '{}' not found", word_filename);
         return;
     }
+
     let tileword: String = getarg(1, "loremipsum".to_string());
     let tiles: Vec<char> = tileword.chars().collect();
     words = words
@@ -440,6 +441,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
             let newwords: Vec<String> = mystackframe
                 .available_words
                 .par_iter()
+                // .iter()
                 .filter(|w| board.fits_in_row(w, row, Direction::Horizontal, &tiles))
                 .map(|w| w.to_string())
                 .collect();
@@ -466,6 +468,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
             let newwords: Vec<String> = mystackframe
                 .available_words
                 .par_iter()
+                // .iter()
                 .filter(|w| board.fits_in_row(w, col, Direction::Vertical, &tiles))
                 .map(|w| w.to_string())
                 .collect();
