@@ -4,7 +4,7 @@ use ndarray::Array2;
 use rand::prelude::*;
 use std::{
     cmp::{max, min},
-    collections::{hash_map::DefaultHasher, HashSet},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
     hash::Hasher,
     iter::FromIterator,
 };
@@ -77,7 +77,8 @@ fn main() {
         WordStackFrame {
             board: Grid(Array2::from_elem((board_dim, board_dim), ' ')),
             remaining_tiles: tiles,
-            available_words: words,
+            available_words: HashMap::new(),
+            all_words: words,
             placed_letters: Vec::new(),
             recursion_depth: 0,
         },
@@ -121,11 +122,13 @@ impl BoundingBox {
 struct WordStackFrame {
     board: Grid,
     remaining_tiles: Vec<char>,
-    available_words: Vec<String>,
+    available_words: HashMap<(Direction, usize), Vec<String>>,
+    all_words: Vec<String>,
     placed_letters: Vec<LetterPlacement>,
     recursion_depth: usize,
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 enum Direction {
     Vertical,
     Horizontal,
@@ -391,13 +394,13 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
     if area >= state.minimum_area {
         return;
     }
-    if *PREEMPTIVE_CHECKING && !board.valid_bananagrams(&mystackframe.available_words) {
+    if *PREEMPTIVE_CHECKING && !board.valid_bananagrams(&mystackframe.all_words) {
         return;
     }
 
     //Base Case: we are out of tiles so we found a solution
     if tiles.is_empty() {
-        if board.valid_bananagrams(&mystackframe.available_words)
+        if board.valid_bananagrams(&mystackframe.all_words)
             && (state.minimum.is_none() || area < state.minimum_area)
         {
             state.minimum = Some(board.clone());
@@ -410,7 +413,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
 
     //Base Case: we have an empty board and should place a first word
     if mystackframe.recursion_depth == 0 {
-        for word in &mystackframe.available_words {
+        for word in &mystackframe.all_words {
             println!("{}", &word);
             let midpoint = board.midpoint();
             let placement = place_word_at(&word, midpoint.0, midpoint.1, Direction::Horizontal);
@@ -419,6 +422,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
                     board: board.clone(),
                     remaining_tiles: mystackframe.remaining_tiles.clone(),
                     available_words: mystackframe.available_words.clone(),
+                    all_words: mystackframe.all_words.clone(),
                     placed_letters: placement,
                     recursion_depth: 1,
                 },
@@ -429,15 +433,44 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
     }
 
     let bounds = board.bounding_box();
+    let mut available_words = mystackframe.available_words;
     for row in bounds.min_row..bounds.max_row + 1 {
-        let newwords: Vec<String> = mystackframe
-            .available_words
-            // .par_iter()
-            .iter()
-            .filter(|w| board.fits_in_row(w, row, Direction::Horizontal, &tiles))
-            .map(|w| w.to_string())
-            .collect();
-        for word in &newwords {
+        let prev_words = {
+            if let Some(ws) = available_words.get(&(Direction::Horizontal, row)) {
+                ws
+            } else {
+                &mystackframe.all_words
+            }
+        };
+        available_words.insert(
+            (Direction::Horizontal, row),
+            prev_words
+                .iter()
+                .filter(|w| board.fits_in_row(w, row, Direction::Horizontal, &tiles))
+                .map(|w| w.to_string())
+                .collect(),
+        );
+    }
+    for col in bounds.min_col..bounds.max_col + 1 {
+        let prev_words = {
+            if let Some(ws) = available_words.get(&(Direction::Vertical, col)) {
+                ws
+            } else {
+                &mystackframe.all_words
+            }
+        };
+        available_words.insert(
+            (Direction::Vertical, col),
+            prev_words
+                .iter()
+                .filter(|w| board.fits_in_row(w, col, Direction::Vertical, &tiles))
+                .map(|w| w.to_string())
+                .collect(),
+        );
+    }
+
+    for row in bounds.min_row..bounds.max_row + 1 {
+        for word in available_words.get(&(Direction::Horizontal, row)).unwrap() {
             let word_placements = board.word_placements_for(&word, row, Direction::Horizontal);
             for placement in word_placements {
                 //check if word can be made
@@ -450,7 +483,8 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
                     WordStackFrame {
                         board: board.clone(),
                         remaining_tiles: tiles.clone(),
-                        available_words: mystackframe.available_words.clone(),
+                        available_words: available_words.clone(),
+                        all_words: mystackframe.all_words.clone(),
                         placed_letters: placement,
                         recursion_depth: &mystackframe.recursion_depth + 1,
                     },
@@ -460,14 +494,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
         }
     }
     for col in bounds.min_col..bounds.max_col + 1 {
-        let newwords: Vec<String> = mystackframe
-            .available_words
-            // .par_iter()
-            .iter()
-            .filter(|w| board.fits_in_row(w, col, Direction::Vertical, &tiles))
-            .map(|w| w.to_string())
-            .collect();
-        for word in &newwords {
+        for word in available_words.get(&(Direction::Vertical, col)).unwrap() {
             let word_placements = board.word_placements_for(&word, col, Direction::Vertical);
             for placement in word_placements {
                 //check if word can be made
@@ -480,7 +507,8 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
                     WordStackFrame {
                         board: board.clone(),
                         remaining_tiles: tiles.clone(),
-                        available_words: mystackframe.available_words.clone(),
+                        available_words: available_words.clone(),
+                        all_words: mystackframe.all_words.clone(),
                         placed_letters: placement,
                         recursion_depth: &mystackframe.recursion_depth + 1,
                     },

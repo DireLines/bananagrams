@@ -12,5 +12,3 @@ ndarray = "0.13.1"
 lazy_static = "1.4.0"
 mimalloc = { version = "*", default-features = false }
 
-[profile.release]
-debug = true
