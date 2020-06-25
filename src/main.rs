@@ -14,10 +14,10 @@ use std::{
 mod args;
 use args::*;
 
-extern crate jemallocator;
+use mimalloc::MiMalloc;
 
 #[global_allocator]
-static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+static GLOBAL: MiMalloc = MiMalloc;
 
 //mutable static
 thread_local! {
