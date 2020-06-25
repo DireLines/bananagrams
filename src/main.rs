@@ -2,7 +2,6 @@ use lazy_static::lazy_static;
 use ndarray::s;
 use ndarray::Array2;
 use rand::prelude::*;
-use rayon::prelude::*;
 use std::{
     cmp::{max, min},
     collections::{hash_map::DefaultHasher, HashSet},
@@ -132,7 +131,7 @@ enum Direction {
     Horizontal,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct Grid(Array2<char>);
 
 impl Grid {
@@ -303,7 +302,6 @@ impl Grid {
     }
 }
 
-#[derive(Default)]
 struct SolveState {
     minimum: Option<Grid>,
     minimum_area: usize,
@@ -332,21 +330,18 @@ fn fits_in_row(word: &str, tiles: &[char], row: &str) -> bool {
     }
     //trim and pad with spaces
     let row = format!("{:pad$}{}{:pad$}", "", row.trim(), "", pad = word.len() - 1);
+    let mut row_with_word_inserted = row.clone();
     'outer: for start_index in 0..row.len() - word.len() + 1 {
-        let mut row_with_word_inserted = row.clone();
+        row_with_word_inserted.replace_range(.., &row);
+        // let mut row_with_word_inserted = row.clone();
         row_with_word_inserted.replace_range(start_index..start_index + word.len(), word);
         for (i, c) in row.chars().enumerate() {
-            if (c != ' ' && c != row_with_word_inserted.chars().nth(i).unwrap()) {
+            if c != ' ' && c != row_with_word_inserted.chars().nth(i).unwrap() {
                 continue 'outer;
             }
         }
         //at this point we know no row characters have been replaced
-        if (row_with_word_inserted
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect::<Vec<String>>()
-            .contains(&word.to_string()))
-        {
+        if row_with_word_inserted.split_whitespace().any(|x| x == word) {
             return true;
         }
     }
@@ -371,7 +366,7 @@ fn place_word_at(word: &str, c0: usize, r0: usize, dir: Direction) -> Vec<Letter
     }
     result
 }
-fn find_minimum_area_configuration(mystackframe: WordStackFrame, s: &mut SolveState) {
+fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut SolveState) {
     let mut tiles = mystackframe.remaining_tiles.clone();
     let mut board = mystackframe.board;
     if mystackframe.recursion_depth > 0 {
@@ -388,12 +383,12 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, s: &mut SolveSt
 
     //early exit checks
     let boardhash = board.hash();
-    if s.hashed_boards.contains(&boardhash) {
+    if state.hashed_boards.contains(&boardhash) {
         return;
     }
-    s.hashed_boards.insert(boardhash);
+    state.hashed_boards.insert(boardhash);
     let area = board.bounding_box_area();
-    if area > s.minimum_area {
+    if area > state.minimum_area {
         return;
     }
     if *PREEMPTIVE_CHECKING && !board.valid_bananagrams(&mystackframe.available_words) {
@@ -403,10 +398,10 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, s: &mut SolveSt
     //Base Case: we are out of tiles so we found a solution
     if tiles.is_empty() {
         if board.valid_bananagrams(&mystackframe.available_words)
-            && (s.minimum.is_none() || area < s.minimum_area)
+            && (state.minimum.is_none() || area < state.minimum_area)
         {
-            s.minimum = Some(board.clone());
-            s.minimum_area = area;
+            state.minimum = Some(board.clone());
+            state.minimum_area = area;
             println!("New Smallest Solution Found!");
             board.print();
         }
@@ -427,7 +422,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, s: &mut SolveSt
                     placed_letters: placement,
                     recursion_depth: 1,
                 },
-                s,
+                state,
             );
         }
         return;
@@ -459,7 +454,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, s: &mut SolveSt
                         placed_letters: placement,
                         recursion_depth: &mystackframe.recursion_depth + 1,
                     },
-                    s,
+                    state,
                 );
             }
         }
@@ -489,7 +484,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, s: &mut SolveSt
                         placed_letters: placement,
                         recursion_depth: &mystackframe.recursion_depth + 1,
                     },
-                    s,
+                    state,
                 );
             }
         }
