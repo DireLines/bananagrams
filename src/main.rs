@@ -388,7 +388,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
     }
     state.hashed_boards.insert(boardhash);
     let area = board.bounding_box_area();
-    if area > state.minimum_area {
+    if area >= state.minimum_area {
         return;
     }
     if *PREEMPTIVE_CHECKING && !board.valid_bananagrams(&mystackframe.available_words) {
