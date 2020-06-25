@@ -115,9 +115,10 @@ struct BoundingBox {
 impl BoundingBox {
     fn area(&self) -> usize {
         max(
-            (self.max_row - self.min_row + 1) * (self.max_col - self.min_col + 1),
+            (self.max_row as isize - self.min_row as isize + 1)
+                * (self.max_col as isize - self.min_col as isize + 1),
             0,
-        )
+        ) as usize
     }
 }
 
@@ -392,12 +393,12 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
 
         //early exit checks
         let boardhash = board.hash();
-        if (*s.borrow()).hashed_boards.contains(&boardhash) {
+        if s.borrow().hashed_boards.contains(&boardhash) {
             return;
         }
-        (*s.borrow_mut()).hashed_boards.insert(boardhash);
+        s.borrow_mut().hashed_boards.insert(boardhash);
         let area = board.bounding_box_area();
-        if area > (*s.borrow()).minimum_area {
+        if area > s.borrow().minimum_area {
             return;
         }
         if *PREEMPTIVE_CHECKING && !board.valid_bananagrams(&mystackframe.available_words) {
@@ -407,10 +408,10 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame) {
         //Base Case: we are out of tiles so we found a solution
         if tiles.is_empty() {
             if board.valid_bananagrams(&mystackframe.available_words)
-                && ((*s.borrow()).minimum.is_none() || area < (*s.borrow()).minimum_area)
+                && (s.borrow().minimum.is_none() || area < s.borrow().minimum_area)
             {
-                (*s.borrow_mut()).minimum = Some(board.clone());
-                (*s.borrow_mut()).minimum_area = area;
+                s.borrow_mut().minimum = Some(board.clone());
+                s.borrow_mut().minimum_area = area;
                 println!("New Smallest Solution Found!");
                 board.print();
             }
