@@ -32,7 +32,9 @@ fn main() {
           -l to try longer words first
           -c to check if valid at every step
           -r to randomize word choosing order
-          -f to choose a file of words to draw from"
+          -f to choose a file of words to draw from
+          --min-word-length to set a lower limit for word size
+          --max-word-length to set an upper limit for word size"
         );
         return;
     }
@@ -49,10 +51,14 @@ fn main() {
         return;
     }
 
+    let min_word_length: usize = after_flag_or("--min-word-length", 0);
+    let max_word_length: usize = after_flag_or("--max-word-length", std::usize::MAX);
+
     let tileword: String = getarg(1, "loremipsum".to_string());
     let tiles: Vec<char> = tileword.chars().collect();
     words = words
         .into_iter()
+        .filter(|word| word.len() >= min_word_length && word.len() <= max_word_length)
         .filter(|word| can_be_made_with(&word.as_str(), &tiles))
         .collect();
     if arg_exists("-r") {
