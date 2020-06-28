@@ -20,58 +20,65 @@ static GLOBAL: MiMalloc = MiMalloc;
 //immutable static
 lazy_static! {
     static ref PREEMPTIVE_CHECKING: bool = arg_exists("-c");
+    static ref ALL_WORDS: Vec<String> = {
+        let word_filename = after_flag_or("-f", "words.txt".to_string());
+        let mut words: Vec<String> = Vec::new();
+        if let Ok(lines) = read_lines(&word_filename) {
+            for line in lines {
+                if let Ok(word) = line {
+                    words.push(word);
+                }
+            }
+        } else {
+            println!("file '{}' not found", word_filename);
+            return Vec::new();
+        }
+
+        let min_word_length: usize = after_flag_or("--min-word-length", 0);
+        let max_word_length: usize = after_flag_or("--max-word-length", std::usize::MAX);
+
+        let tileword: String = getarg(1, "loremipsum".to_string());
+        let tiles: Vec<char> = tileword.chars().collect();
+        words = words
+            .into_iter()
+            .filter(|word| word.len() >= min_word_length && word.len() <= max_word_length)
+            .filter(|word| can_be_made_with(&word.as_str(), &tiles))
+            .collect();
+        if arg_exists("-r") {
+            words.shuffle(&mut thread_rng());
+        }
+        if arg_exists("-s") {
+            words.sort_by_key(|a| a.len());
+        }
+        if arg_exists("-l") {
+            words.sort_by_key(|a| a.len());
+            words.reverse();
+        }
+        println!("{:?}", words);
+        words
+    };
+    static ref WORD_SET: HashSet<String> = ALL_WORDS.iter().map(|s| s.to_string()).collect();
 }
 
 fn main() {
     if num_args() < 2 || arg_exists("-help") {
         println!(
             "Usage: ./bananagrams [tiles]
-    Ex: ./bananagrams loremipsum -c -s -f common.txt
-    Options:
-          -s to try shorter words first
-          -l to try longer words first
-          -c to check if valid at every step
-          -r to randomize word choosing order
-          -f to choose a file of words to draw from
-          --min-word-length to set a lower limit for word size
-          --max-word-length to set an upper limit for word size"
+Ex: ./bananagrams loremipsum -c -s -f common.txt
+Options:
+      -s to try shorter words first
+      -l to try longer words first
+      -c to check if valid at every step
+      -r to randomize word choosing order
+      -f to choose a file of words to draw from
+      --min-word-length to set a lower limit for word size
+      --max-word-length to set an upper limit for word size"
         );
         return;
     }
-    let word_filename = after_flag_or("-f", "words.txt".to_string());
-    let mut words: Vec<String> = Vec::new();
-    if let Ok(lines) = read_lines(&word_filename) {
-        for line in lines {
-            if let Ok(word) = line {
-                words.push(word);
-            }
-        }
-    } else {
-        println!("file '{}' not found", word_filename);
-        return;
-    }
-
-    let min_word_length: usize = after_flag_or("--min-word-length", 0);
-    let max_word_length: usize = after_flag_or("--max-word-length", std::usize::MAX);
 
     let tileword: String = getarg(1, "loremipsum".to_string());
     let tiles: Vec<char> = tileword.chars().collect();
-    words = words
-        .into_iter()
-        .filter(|word| word.len() >= min_word_length && word.len() <= max_word_length)
-        .filter(|word| can_be_made_with(&word.as_str(), &tiles))
-        .collect();
-    if arg_exists("-r") {
-        words.shuffle(&mut thread_rng());
-    }
-    if arg_exists("-s") {
-        words.sort_by_key(|a| a.len());
-    }
-    if arg_exists("-l") {
-        words.sort_by_key(|a| a.len());
-        words.reverse();
-    }
-    println!("{:?}", words);
 
     let board_dim = tiles.len() * 2;
     let mut state = SolveState {
@@ -84,7 +91,6 @@ fn main() {
             board: Grid(Array2::from_elem((board_dim, board_dim), ' ')),
             remaining_tiles: tiles,
             available_words: HashMap::new(),
-            all_words: words,
             placed_letters: Vec::new(),
             recursion_depth: 0,
         },
@@ -129,7 +135,6 @@ struct WordStackFrame {
     board: Grid,
     remaining_tiles: Vec<char>,
     available_words: HashMap<(Direction, usize), Vec<String>>,
-    all_words: Vec<String>,
     placed_letters: Vec<LetterPlacement>,
     recursion_depth: usize,
 }
@@ -212,7 +217,7 @@ impl Grid {
         self.bounding_box().area()
     }
 
-    fn valid_bananagrams(&self, words: &[String]) -> bool {
+    fn valid_bananagrams(&self) -> bool {
         let bounds = self.bounding_box();
         let mut words_to_check: Vec<String> = Vec::new();
         for row in bounds.min_row..bounds.max_row + 1 {
@@ -230,7 +235,7 @@ impl Grid {
             );
         }
         for word in &words_to_check {
-            if !words.contains(word) && word.len() > 1 {
+            if !(*WORD_SET).contains(word) && word.len() > 1 {
                 return false;
             }
         }
@@ -400,15 +405,13 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
     if area >= state.minimum_area {
         return;
     }
-    if *PREEMPTIVE_CHECKING && !board.valid_bananagrams(&mystackframe.all_words) {
+    if *PREEMPTIVE_CHECKING && !board.valid_bananagrams() {
         return;
     }
 
     //Base Case: we are out of tiles so we found a solution
     if tiles.is_empty() {
-        if board.valid_bananagrams(&mystackframe.all_words)
-            && (state.minimum.is_none() || area < state.minimum_area)
-        {
+        if board.valid_bananagrams() && (state.minimum.is_none() || area < state.minimum_area) {
             state.minimum = Some(board.clone());
             state.minimum_area = area;
             println!("New Smallest Solution Found!");
@@ -419,7 +422,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
 
     //Base Case: we have an empty board and should place a first word
     if mystackframe.recursion_depth == 0 {
-        for word in &mystackframe.all_words {
+        for word in &*ALL_WORDS {
             println!("{}", &word);
             let midpoint = board.midpoint();
             let placement = place_word_at(&word, midpoint.0, midpoint.1, Direction::Horizontal);
@@ -428,7 +431,6 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
                     board: board.clone(),
                     remaining_tiles: mystackframe.remaining_tiles.clone(),
                     available_words: mystackframe.available_words.clone(),
-                    all_words: mystackframe.all_words.clone(),
                     placed_letters: placement,
                     recursion_depth: 1,
                 },
@@ -445,7 +447,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
             if let Some(ws) = available_words.get(&(Direction::Horizontal, row)) {
                 ws
             } else {
-                &mystackframe.all_words
+                &*ALL_WORDS
             }
         };
         available_words.insert(
@@ -462,7 +464,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
             if let Some(ws) = available_words.get(&(Direction::Vertical, col)) {
                 ws
             } else {
-                &mystackframe.all_words
+                &*ALL_WORDS
             }
         };
         available_words.insert(
@@ -490,7 +492,6 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
                         board: board.clone(),
                         remaining_tiles: tiles.clone(),
                         available_words: available_words.clone(),
-                        all_words: mystackframe.all_words.clone(),
                         placed_letters: placement,
                         recursion_depth: &mystackframe.recursion_depth + 1,
                     },
@@ -514,7 +515,6 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
                         board: board.clone(),
                         remaining_tiles: tiles.clone(),
                         available_words: available_words.clone(),
-                        all_words: mystackframe.all_words.clone(),
                         placed_letters: placement,
                         recursion_depth: &mystackframe.recursion_depth + 1,
                     },
