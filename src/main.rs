@@ -22,17 +22,12 @@ lazy_static! {
     static ref PREEMPTIVE_CHECKING: bool = arg_exists("-c");
     static ref ALL_WORDS: Vec<String> = {
         let word_filename = after_flag_or("-f", "words.txt".to_string());
-        let mut words: Vec<String> = Vec::new();
-        if let Ok(lines) = read_lines(&word_filename) {
-            for line in lines {
-                if let Ok(word) = line {
-                    words.push(word);
-                }
-            }
+        let mut words: Vec<String> = if let Ok(lines) = read_lines(&word_filename) {
+            lines.flatten().collect()
         } else {
             println!("file '{}' not found", word_filename);
             return Vec::new();
-        }
+        };
 
         let min_word_length: usize = after_flag_or("--min-word-length", 0);
         let max_word_length: usize = after_flag_or("--max-word-length", std::usize::MAX);
@@ -42,7 +37,7 @@ lazy_static! {
         words = words
             .into_iter()
             .filter(|word| word.len() >= min_word_length && word.len() <= max_word_length)
-            .filter(|word| can_be_made_with(&word.as_str(), &tiles))
+            .filter(|word| can_be_made_with(word, &tiles))
             .collect();
         if arg_exists("-r") {
             words.shuffle(&mut thread_rng());
@@ -172,7 +167,7 @@ impl Grid {
             for col in 0..self.0.dim().1 {
                 print!("{} ", self.0[[row, col]]);
             }
-            print!("\n");
+            println!();
         }
         println!("Area: {}", self.bounding_box_area());
     }
@@ -386,7 +381,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
     if mystackframe.recursion_depth > 0 {
         //actually place tiles we are assigned
         for ltr in &mystackframe.placed_letters {
-            board.place_letter(&ltr);
+            board.place_letter(ltr);
             let index = tiles.iter().position(|x| *x == ltr.letter).unwrap();
             tiles.remove(index);
         }
@@ -423,9 +418,9 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
     //Base Case: we have an empty board and should place a first word
     if mystackframe.recursion_depth == 0 {
         for word in &*ALL_WORDS {
-            println!("{}", &word);
+            println!("{}", word);
             let midpoint = board.midpoint();
-            let placement = place_word_at(&word, midpoint.0, midpoint.1, Direction::Horizontal);
+            let placement = place_word_at(word, midpoint.0, midpoint.1, Direction::Horizontal);
             find_minimum_area_configuration(
                 WordStackFrame {
                     board: board.clone(),
@@ -450,14 +445,12 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
                 &*ALL_WORDS
             }
         };
-        available_words.insert(
-            (Direction::Horizontal, row),
-            prev_words
-                .iter()
-                .filter(|w| board.fits_in_row(w, row, Direction::Horizontal, &tiles))
-                .map(|w| w.to_string())
-                .collect(),
-        );
+        let current_words = prev_words
+            .iter()
+            .filter(|w| board.fits_in_row(w, row, Direction::Horizontal, &tiles))
+            .map(|w| w.to_string())
+            .collect();
+        available_words.insert((Direction::Horizontal, row), current_words);
     }
     for col in bounds.min_col..bounds.max_col + 1 {
         let prev_words = {
@@ -467,19 +460,17 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
                 &*ALL_WORDS
             }
         };
-        available_words.insert(
-            (Direction::Vertical, col),
-            prev_words
-                .iter()
-                .filter(|w| board.fits_in_row(w, col, Direction::Vertical, &tiles))
-                .map(|w| w.to_string())
-                .collect(),
-        );
+        let current_words = prev_words
+            .iter()
+            .filter(|w| board.fits_in_row(w, col, Direction::Vertical, &tiles))
+            .map(|w| w.to_string())
+            .collect();
+        available_words.insert((Direction::Vertical, col), current_words);
     }
 
     for row in bounds.min_row..bounds.max_row + 1 {
         for word in available_words.get(&(Direction::Horizontal, row)).unwrap() {
-            let word_placements = board.word_placements_for(&word, row, Direction::Horizontal);
+            let word_placements = board.word_placements_for(word, row, Direction::Horizontal);
             for placement in word_placements {
                 //check if word can be made
                 let tilesplaced: String = placement.iter().map(|lp| lp.letter).collect();
@@ -502,7 +493,7 @@ fn find_minimum_area_configuration(mystackframe: WordStackFrame, state: &mut Sol
     }
     for col in bounds.min_col..bounds.max_col + 1 {
         for word in available_words.get(&(Direction::Vertical, col)).unwrap() {
-            let word_placements = board.word_placements_for(&word, col, Direction::Vertical);
+            let word_placements = board.word_placements_for(word, col, Direction::Vertical);
             for placement in word_placements {
                 //check if word can be made
                 let tilesplaced: String = placement.iter().map(|lp| lp.letter).collect();
